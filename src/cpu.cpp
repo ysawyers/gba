@@ -41,6 +41,10 @@ bool CPU::condition(std::uint32_t instr) {
     std::unreachable();
 }
 
+std::uint32_t CPU::ror(std::uint32_t operand, std::size_t shift_amount) {
+    return (operand >> (shift_amount & 31)) | (operand << ((-shift_amount) & 31));
+}
+
 CPU::CPU(const std::string&& rom_filepath) : m_pipeline(0), m_pipeline_invalid(true) {
     m_mem.load_rom(std::move(rom_filepath));
 
@@ -158,10 +162,8 @@ CPU::InstrFormat CPU::decode(std::uint32_t instr) {
 
     psr_or_alu: {
         std::uint8_t opcode = (instr >> 21) & 0xF;
-        if ((opcode >> 2) == 0b10) {
-            if (opcode & 1) {
-                return InstrFormat::MSR;
-            }
+        if ((((instr >> 20) & 1) == 0) && ((opcode >> 2) == 0b10)) [[unlikely]] {
+            if (opcode & 1) return InstrFormat::MSR;
             return InstrFormat::MRS;
         }
         return InstrFormat::ALU;
@@ -194,9 +196,7 @@ bool CPU::barrel_shifter(
             carry_out = operand & 1;
             operand = (static_cast<std::uint32_t>(m_flags.c) << 31) | (operand >> 1);
         } else {
-            // ROR by an amount that is greater than 32 will function as ROR n-32 repeated 
-            // until shift in the range of 1-32
-            operand = (operand >> (shift_amount & 31)) | (operand << ((-shift_amount) & 31));
+            operand = ror(operand, shift_amount);
             carry_out = operand >> 31;
         }
         return true;
@@ -215,8 +215,6 @@ int CPU::branch(std::uint32_t instr) {
 }
 
 int CPU::branch_ex(std::uint32_t instr) {
-    std::cout << "branch ex" << std::endl;
-
     if (condition(instr)) {
         std::cout << "branch ex" << std::endl;
     }
@@ -224,8 +222,6 @@ int CPU::branch_ex(std::uint32_t instr) {
 }
 
 int CPU::single_transfer(std::uint32_t instr) {
-    std::cout << "single transfer" << std::endl;
-
     if (condition(instr)) {
         std::cout << "single transfer" << std::endl;
     }
@@ -250,10 +246,13 @@ int CPU::halfword_transfer(std::uint32_t instr) {
         bool writeback = (p && w) || !p;
 
         if (l) {
+            // https://problemkaputt.de/gbatek.htm#armcpumemoryalignments
+            // LDRH and LDRSH alignments are weird.
             switch (opcode) {
             case 0x1: {
-                std::cout << "LDRH" << std::endl;
-                std::exit(1);
+                m_regs[rd] = addr & 1 ? ror(m_mem.read_halfword(addr - 1), 8) 
+                    : m_mem.read_halfword(addr);
+                break;
             }
             case 0x2: {
                 std::cout << "LDRSB" << std::endl;
@@ -288,8 +287,6 @@ int CPU::halfword_transfer(std::uint32_t instr) {
 }
 
 int CPU::block_transfer(std::uint32_t instr) {
-    std::cout << "block transfer" << std::endl;
-
     if (condition(instr)) {
         std::cout << "block transfer" << std::endl;
     }
@@ -297,17 +294,13 @@ int CPU::block_transfer(std::uint32_t instr) {
 }
 
 int CPU::mrs(std::uint32_t instr) {
-    std::cout << "mrs 1" << std::endl;
-
     if (condition(instr)) {
-        std::cout << "mrs 2" << std::endl;
+        std::cout << "mrs" << std::endl;
     }
     return 1;
 }
 
 int CPU::msr(std::uint32_t instr) {
-    std::cout << "msr" << std::endl;
-
     if (condition(instr)) {
         std::cout << "msr" << std::endl;
     }
@@ -315,8 +308,6 @@ int CPU::msr(std::uint32_t instr) {
 }
 
 int CPU::swi(std::uint32_t instr) {
-    std::cout << "swi" << std::endl;
-
     if (condition(instr)) {
         std::cout << "swi" << std::endl;
     }
@@ -324,8 +315,6 @@ int CPU::swi(std::uint32_t instr) {
 }
 
 int CPU::swp(std::uint32_t instr) {
-    std::cout << "swp" << std::endl;
-
     if (condition(instr)) {
         std::cout << "swp" << std::endl;
     }
@@ -418,8 +407,6 @@ int CPU::alu(std::uint32_t instr) {
 }
 
 int CPU::mul(std::uint32_t instr) {
-    std::cout << "mul" << std::endl;
-
     if (condition(instr)) {
         std::cout << "mul" << std::endl;
     }

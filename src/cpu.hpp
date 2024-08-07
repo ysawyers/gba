@@ -103,6 +103,7 @@ class CPU {
         bool thumb_enabled();
         bool condition(std::uint32_t instr);
         void change_cpsr_mode(Mode mode);
+        std::uint32_t ror(std::uint32_t operand, std::size_t shift_amount);
 
         std::uint32_t m_pipeline;
         bool m_pipeline_invalid;

@@ -24,15 +24,32 @@ std::uint32_t Memory::read_word(std::uint32_t addr) {
     case 0x00: return *reinterpret_cast<std::uint32_t*>(m_bios + addr);
     case 0x02: return *reinterpret_cast<std::uint32_t*>(m_ewram + ((addr - 0x02000000) & 0x3FFFF));
     case 0x03: return *reinterpret_cast<std::uint32_t*>(m_iwram + ((addr - 0x03000000) & 0x7FFF));
+    case 0x04:
+        switch (addr) {
+        default:
+            if (addr >= 0x04000000 && addr <= 0x04000054) {
+                return *reinterpret_cast<std::uint32_t*>(m_ppu.m_mmio + (addr - 0x04000000));
+            }
+            printf("[read] unmapped hardware register: %08X\n", addr);
+            exit(1);
+        }
+    case 0x05: return *reinterpret_cast<std::uint32_t*>(m_ppu.m_pallete_ram + ((addr - 0x05000000) & 0x3FF));
+    case 0x06:
+        addr = (addr - 0x06000000) & 0x1FFFF;
+        if (addr >= 0x18000 && addr <= 0x1FFFF) {
+            return *reinterpret_cast<std::uint32_t*>(m_ppu.m_vram + (addr - 0x8000));
+        }
+        return *reinterpret_cast<std::uint32_t*>(m_ppu.m_vram + addr);
+    case 0x07: return *reinterpret_cast<std::uint32_t*>(m_ppu.m_oam + ((addr - 0x07000000) & 0x3FF));
     case 0x08:
     case 0x09:
     case 0x0A:
     case 0x0B:
     case 0x0C:
     case 0x0D: return *reinterpret_cast<std::uint32_t*>(m_rom + ((addr - 0x08000000) & 0x1FFFFFF));
-    default:
-        std::cout << "unimplemented: " << addr << std::endl;
-        std::exit(1);
+    case 0x0E:
+        printf("cart ram\n");
+        exit(1);
     }
     return 0;
 }
@@ -40,8 +57,38 @@ std::uint32_t Memory::read_word(std::uint32_t addr) {
 std::uint16_t Memory::read_halfword(std::uint32_t addr) {
     addr &= ~1;
 
-    std::cout << "unimplemented: " << addr << std::endl;
-    std::exit(1);
+    switch ((addr >> 24) & 0xFF) {
+    case 0x00: return *reinterpret_cast<std::uint16_t*>(m_bios + addr);
+    case 0x02: return *reinterpret_cast<std::uint16_t*>(m_ewram + ((addr - 0x02000000) & 0x3FFFF));
+    case 0x03: return *reinterpret_cast<std::uint16_t*>(m_iwram + ((addr - 0x03000000) & 0x7FFF));
+    case 0x04:
+        switch (addr) {
+        default:
+            if (addr >= 0x04000000 && addr <= 0x04000054) {
+                return *reinterpret_cast<std::uint16_t*>(m_ppu.m_mmio + (addr - 0x04000000));
+            }
+            printf("[read] unmapped hardware register: %08X\n", addr);
+            exit(1);
+        }
+    case 0x05: return *reinterpret_cast<std::uint16_t*>(m_ppu.m_pallete_ram + ((addr - 0x05000000) & 0x3FF));
+    case 0x06:
+        addr = (addr - 0x06000000) & 0x1FFFF;
+        if (addr >= 0x18000 && addr <= 0x1FFFF) {
+            return *reinterpret_cast<std::uint16_t*>(m_ppu.m_vram + (addr - 0x8000));
+        }
+        return *reinterpret_cast<std::uint16_t*>(m_ppu.m_vram + addr);
+    case 0x07: return *reinterpret_cast<std::uint16_t*>(m_ppu.m_oam + ((addr - 0x07000000) & 0x3FF));
+    case 0x08:
+    case 0x09:
+    case 0x0A:
+    case 0x0B:
+    case 0x0C:
+    case 0x0D: return *reinterpret_cast<std::uint16_t*>(m_rom + ((addr - 0x08000000) & 0x1FFFFFF));
+    case 0x0E:
+        printf("cart ram\n");
+        exit(1);
+    }
+    return 0;
 }
 
 void Memory::write_word(std::uint32_t addr, std::uint32_t value) {
@@ -92,12 +139,10 @@ void Memory::write_halfword(std::uint32_t addr, std::uint16_t value) {
         // return;
 
     vram_reg:
-        std::cout << "vram" << std::endl;
-        std::exit(1);
-        // addr = (addr - 0x06000000) & 0x1FFFF;
-        // if (addr >= 0x18000) addr -= 0x8000;
-        // *(uint16_t *)(vram + addr) = halfword;
-        // return;
+        addr = (addr - 0x06000000) & 0x1FFFF;
+        if (addr >= 0x18000) addr -= 0x8000;
+        *reinterpret_cast<std::uint16_t*>(m_ppu.m_vram + addr) = value;
+        return;
 
     oam_reg:
         std::cout << "oam" << std::endl;
