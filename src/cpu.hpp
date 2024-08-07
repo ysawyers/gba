@@ -24,6 +24,35 @@ struct Registers {
     std::uint32_t r15 = 0; // PC
     std::uint32_t cpsr = 0;
     std::uint32_t spsr = 0;
+
+    std::uint32_t operator[](std::size_t reg) {
+        switch (reg) {
+        case 0x0: return r0;
+        case 0x1: return r1;
+        case 0x2: return r2;
+        case 0x3: return r3;
+        case 0x4: return r4;
+        case 0x5: return r5;
+        case 0x6: return r6;
+        case 0x7: return r7;
+        case 0x8: return r8;
+        case 0x9: return r9;
+        case 0xA: return r10;
+        case 0xB: return r11;
+        case 0xC: return r12;
+        case 0xD: return r13;
+        case 0xE: return r14;
+        case 0xF: return r15;
+        default: return 0;
+        }
+    };
+};
+
+struct Flags {
+    bool n = false;
+    bool z = false;
+    bool c = false;
+    bool v = false;
 };
 
 class CPU {
@@ -42,10 +71,21 @@ class CPU {
             SINGLE_TRANSFER, HALFWORD_TRANSFER, BLOCK_TRANSFER,   
         };
 
+        enum class ShiftType {
+            LSL, LSR, ASR, ROR 
+        };
+
     private:
         std::uint32_t fetch();
         InstrFormat decode(const std::uint32_t instr);
         std::size_t execute();
+
+        std::uint32_t barrel_shifter(
+            ShiftType shift_type, 
+            std::uint32_t value, 
+            std::uint8_t shift_amount, 
+            bool reg_imm_shift
+        );
 
         std::size_t branch(const std::uint32_t instr);
         std::size_t branch_ex(const std::uint32_t instr);
@@ -60,12 +100,14 @@ class CPU {
         std::size_t mul(const std::uint32_t instr);
 
         bool thumb_enabled();
+        bool condition(const std::uint32_t instr);
         void change_cpsr_mode(Mode mode);
 
-        bool m_pipeline_invalid;
         std::uint32_t m_pipeline;
+        bool m_pipeline_invalid;
         std::array<Registers, 6> m_banked_regs{};
         Registers& m_regs = m_banked_regs[0];
+        Flags flags;
         Memory m_mem;
 };
 

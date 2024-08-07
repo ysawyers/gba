@@ -4,8 +4,8 @@
 #include <utility>
 
 constexpr int halfword_access = 2;
-constexpr int word_access = 1;
-constexpr int cycles_per_frame = 280896;
+constexpr int word_access = 4;
+// constexpr int cycles_per_frame = 280896;
 
 bool CPU::thumb_enabled() {
     return (m_regs.cpsr >> 5) & 1;
@@ -13,12 +13,36 @@ bool CPU::thumb_enabled() {
 
 void CPU::change_cpsr_mode(Mode mode) {
     m_regs = m_banked_regs[std::to_underlying(mode)];
+    bool n = (m_regs.cpsr >> 31) & 1;
+    bool z = (m_regs.cpsr >> 30) & 1;
+    bool c = (m_regs.cpsr >> 29) & 1;
+    bool v = (m_regs.cpsr >> 28) & 1;
+    flags = Flags{n, z, c, v};
 }
 
-CPU::CPU(const std::string&& rom_filepath) {
+bool CPU::condition(const std::uint32_t instr) {
+    switch ((instr >> 28) & 0xF) {
+    case 0x0: return flags.z;
+    case 0x1: return !flags.z;
+    case 0x2: return flags.c;
+    case 0x3: return !flags.c;
+    case 0x4: return flags.n;
+    case 0x5: return !flags.n;
+    case 0x6: return flags.v;
+    case 0x7: return !flags.v;
+    case 0x8: return flags.c & !flags.z;
+    case 0x9: return !flags.c | flags.z;
+    case 0xA: return flags.n == flags.v;
+    case 0xB: return flags.n ^ flags.v;
+    case 0xC: return !flags.z && (flags.n == flags.v);
+    case 0xD: return flags.z || (flags.n ^ flags.v);
+    case 0xE: return true;
+    }
+    std::unreachable();
+}
+
+CPU::CPU(const std::string&& rom_filepath) : m_pipeline(0), m_pipeline_invalid(true) {
     m_mem.load_rom(std::move(rom_filepath));
-    m_pipeline = 0;
-    m_pipeline_invalid = true;
 
     // initializes registers while bios is unimplemented
     m_banked_regs[std::to_underlying(Mode::SVC)].r13 = 0x03007FE0;
@@ -111,7 +135,7 @@ CPU::InstrFormat CPU::decode(const std::uint32_t instr) {
             switch ((instr >> 4) & 0xF) {
             case 0x1:
                 if (((instr >> 8) & 0xF) == 0xF) return InstrFormat::BX;
-                goto psr_transfer_or_alu_op;
+                goto psr_or_alu;
             case 0x9:
                 switch ((instr >> 23) & 0x3) {
                 case 0x0:
@@ -121,9 +145,9 @@ CPU::InstrFormat CPU::decode(const std::uint32_t instr) {
             case 0xB:
             case 0xD: 
             case 0xF: return InstrFormat::HALFWORD_TRANSFER;
-            default: goto psr_transfer_or_alu_op;
+            default: goto psr_or_alu;
             }
-        case 0x1: goto psr_transfer_or_alu_op;
+        case 0x1: goto psr_or_alu;
         case 0x2:
         case 0x3: return InstrFormat::SINGLE_TRANSFER;
         case 0x4: return InstrFormat::BLOCK_TRANSFER;
@@ -132,93 +156,195 @@ CPU::InstrFormat CPU::decode(const std::uint32_t instr) {
         }
     }
 
-    psr_transfer_or_alu_op: {
+    psr_or_alu: {
         std::uint8_t opcode = (instr >> 21) & 0xF;
-        switch (opcode) {
-            case 0x8:
-            case 0x9:
-            case 0xA:
-            case 0xB:
-                if (((instr >> 20) & 1) == 0) {
-                    if (opcode & 1) return InstrFormat::MSR;
-                    return InstrFormat::MRS;
-                };
-            default: return InstrFormat::ALU;
+        if ((opcode >> 2) == 0b10) {
+            if (opcode & 1) {
+                return InstrFormat::MSR;
+            }
+            return InstrFormat::MRS;
         }
+        return InstrFormat::ALU;
     }
 }
 
-std::size_t CPU::branch(const std::uint32_t instr) {
-    std::cout << "branch" << std::endl;
+std::uint32_t CPU::barrel_shifter(
+    ShiftType shift_type, 
+    std::uint32_t value, 
+    std::uint8_t shift_amount, 
+    bool reg_imm_shift
+) {
+    return 0;
+}
 
+std::size_t CPU::branch(const std::uint32_t instr) {
+    if (condition(instr)) {
+        bool bl = (instr >> 24) & 1;
+        std::int32_t nn = (static_cast<std::int32_t>((instr & 0xFFFFFF) << 8) >> 8) * 4;
+        if (bl) m_regs.r14 = m_regs.r15 - 4;
+        m_regs.r15 += nn;
+        m_pipeline_invalid = true;
+    }
     return 1;
 }
 
 std::size_t CPU::branch_ex(const std::uint32_t instr) {
     std::cout << "branch ex" << std::endl;
 
+    if (condition(instr)) {
+        std::cout << "branch ex" << std::endl;
+    }
     return 1;
 }
 
 std::size_t CPU::single_transfer(const std::uint32_t instr) {
     std::cout << "single transfer" << std::endl;
 
+    if (condition(instr)) {
+        std::cout << "single transfer" << std::endl;
+    }
     return 1;
 }
 
 std::size_t CPU::halfword_transfer(const std::uint32_t instr) {
     std::cout << "halfword transfer" << std::endl;
 
+    if (condition(instr)) {
+        std::cout << "halfword transfer" << std::endl;
+    }
     return 1;
 }
 
 std::size_t CPU::block_transfer(const std::uint32_t instr) {
     std::cout << "block transfer" << std::endl;
 
+    if (condition(instr)) {
+        std::cout << "block transfer" << std::endl;
+    }
     return 1;
 }
 
 std::size_t CPU::mrs(const std::uint32_t instr) {
-    std::cout << "mrs" << std::endl;
+    std::cout << "mrs 1" << std::endl;
 
+    if (condition(instr)) {
+        std::cout << "mrs 2" << std::endl;
+    }
     return 1;
 }
 
 std::size_t CPU::msr(const std::uint32_t instr) {
     std::cout << "msr" << std::endl;
 
+    if (condition(instr)) {
+        std::cout << "msr" << std::endl;
+    }
     return 1;
 }
 
 std::size_t CPU::swi(const std::uint32_t instr) {
     std::cout << "swi" << std::endl;
 
+    if (condition(instr)) {
+        std::cout << "swi" << std::endl;
+    }
     return 1;
 }
 
 std::size_t CPU::swp(const std::uint32_t instr) {
-    std::cout << "swi" << std::endl;
+    std::cout << "swp" << std::endl;
 
+    if (condition(instr)) {
+        std::cout << "swp" << std::endl;
+    }
     return 1;
 }
 
 std::size_t CPU::alu(const std::uint32_t instr) {
-    std::cout << "alu" << std::endl;
+    if (condition(instr)) {
+        bool imm = (instr >> 25) & 1;
+        // bool set_cc = (instr >> 20) & 1;
+        // std::uint32_t rn = (instr >> 16) & 0xF;
+        // std::uint32_t rd = (instr >> 12) & 0xF;
 
+        std::uint32_t operand_2 = 0;
+
+        if (imm) {
+            std::size_t imm_shift = ((instr >> 8) & 0xF) * 2; 
+            std::uint8_t nn = instr & 0xFF;
+            operand_2 = barrel_shifter(ShiftType::ROR, nn, imm_shift, false);
+        } else {
+            std::cout << "!imm not implemented\n";
+            std::exit(1);
+        }
+
+        std::cout << std::hex << operand_2 << std::endl;
+
+        switch ((instr >> 21) & 0xF) {
+        case 0x0:
+            std::cout << "AND" << std::endl;
+            std::exit(1);
+        case 0x1:
+            std::cout << "EOR" << std::endl;
+            std::exit(1);
+        case 0x2:
+            std::cout << "SUB" << std::endl;
+            std::exit(1);
+        case 0x3:
+            std::cout << "RSB" << std::endl;
+            std::exit(1);
+        case 0x4:
+            std::cout << "ADD" << std::endl;
+            std::exit(1);
+        case 0x5:
+            std::cout << "ADC" << std::endl;
+            std::exit(1);
+        case 0x6:
+            std::cout << "SBC" << std::endl;
+            std::exit(1);
+        case 0x7:
+            std::cout << "RSC" << std::endl;
+            std::exit(1);
+        case 0x8:
+            std::cout << "TST" << std::endl;
+            std::exit(1);
+        case 0x9:
+            std::cout << "TEQ" << std::endl;
+            std::exit(1);
+        case 0xA:
+            std::cout << "CMP" << std::endl;
+            std::exit(1);
+        case 0xB:
+            std::cout << "CMN" << std::endl;
+            std::exit(1);
+        case 0xC:
+            std::cout << "ORR" << std::endl;
+            std::exit(1);
+        case 0xD:
+            std::cout << "MOV" << std::endl;
+            std::exit(1);
+        case 0xF:
+            std::cout << "MVN" << std::endl;
+            std::exit(1);
+        }
+    }
     return 1;
 }
 
 std::size_t CPU::mul(const std::uint32_t instr) {
     std::cout << "mul" << std::endl;
 
+    if (condition(instr)) {
+        std::cout << "mul" << std::endl;
+    }
     return 1;
 }
 
 std::size_t CPU::execute() {
     const std::uint32_t instr = m_pipeline_invalid ? fetch() : m_pipeline;
-    InstrFormat format = decode(instr);
+    m_pipeline_invalid = false;
 
-    switch (format) {
+    switch (decode(instr)) {
     case InstrFormat::B: return branch(instr);
     case InstrFormat::BX: return branch_ex(instr);
     case InstrFormat::SINGLE_TRANSFER: return single_transfer(instr);
@@ -232,16 +358,16 @@ std::size_t CPU::execute() {
     case InstrFormat::MUL: return mul(instr);
     case InstrFormat::NOP: return 1;
     }
-
-    std::unreachable();
 }
 
 void CPU::render_frame() noexcept {
-    int cycles = 0;
+    // int cycles = 0;
 
-    while (cycles < cycles_per_frame) {
-        execute();
-        // tick components n number of cycles
-        break;
-    }
+    execute();
+    execute();
+
+    // while (cycles < cycles_per_frame) {
+    //     execute();
+    //     // tick components n number of cycles
+    // }
 }
