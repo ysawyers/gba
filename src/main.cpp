@@ -1,5 +1,7 @@
 #include <iostream>
+
 #include "program_options.hpp"
+#include "cpu.hpp"
 
 int main(int argc, char* argv[]) {
     try {
@@ -14,7 +16,9 @@ int main(int argc, char* argv[]) {
             throw std::runtime_error("rom path required, use -r option");
         }
 
-        // TODO: send off to emulator!
+        // NOTE: placeholder while working on the CPU
+        CPU cpu(std::move(rom_filepath));
+        cpu.render_frame();
     } catch (const std::runtime_error& ex) {
         std::cerr << "error: " << ex.what() << "\n";
     }
