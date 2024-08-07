@@ -4,6 +4,8 @@
 #include <string>
 #include <vector>
 
+#include "ppu.hpp"
+
 class Memory {
     public:
         Memory() {
@@ -26,11 +28,20 @@ class Memory {
 
         std::uint16_t read_halfword(std::uint32_t addr);
 
+        void write_word(std::uint32_t addr, std::uint32_t value);
+
+        void write_halfword(std::uint32_t addr, std::uint16_t value);
+
+        void write_byte(std::uint32_t addr, std::uint8_t value);
+
+        void tick_components(int cycles);
+
     private:
         std::uint8_t* m_bios;
         std::uint8_t* m_ewram;
         std::uint8_t* m_iwram;
         std::uint8_t* m_rom;
+        PPU m_ppu;
 };
 
 #endif

@@ -25,7 +25,7 @@ struct Registers {
     std::uint32_t cpsr = 0;
     std::uint32_t spsr = 0;
 
-    std::uint32_t operator[](std::size_t reg) {
+    std::uint32_t& operator[](std::size_t reg) {
         switch (reg) {
         case 0x0: return r0;
         case 0x1: return r1;
@@ -43,8 +43,8 @@ struct Registers {
         case 0xD: return r13;
         case 0xE: return r14;
         case 0xF: return r15;
-        default: return 0;
         }
+        std::unreachable();
     };
 };
 
@@ -59,7 +59,7 @@ class CPU {
     public:
         CPU(const std::string&& rom_filepath);
 
-        void render_frame() noexcept;
+        void render_frame();
 
         // used as indices for banked registers
         enum class Mode {
@@ -77,37 +77,38 @@ class CPU {
 
     private:
         std::uint32_t fetch();
-        InstrFormat decode(const std::uint32_t instr);
-        std::size_t execute();
+        InstrFormat decode(std::uint32_t instr);
+        int execute();
 
-        std::uint32_t barrel_shifter(
-            ShiftType shift_type, 
-            std::uint32_t value, 
+        bool barrel_shifter(
+            std::uint32_t& operand,
+            bool& carry_out,
+            ShiftType shift_type,
             std::uint8_t shift_amount, 
             bool reg_imm_shift
         );
 
-        std::size_t branch(const std::uint32_t instr);
-        std::size_t branch_ex(const std::uint32_t instr);
-        std::size_t single_transfer(const std::uint32_t instr);
-        std::size_t halfword_transfer(const std::uint32_t instr);
-        std::size_t block_transfer(const std::uint32_t instr);
-        std::size_t msr(const std::uint32_t instr);
-        std::size_t mrs(const std::uint32_t instr);
-        std::size_t swi(const std::uint32_t instr);
-        std::size_t swp(const std::uint32_t instr);
-        std::size_t alu(const std::uint32_t instr);
-        std::size_t mul(const std::uint32_t instr);
+        int branch(std::uint32_t instr);
+        int branch_ex(std::uint32_t instr);
+        int single_transfer(std::uint32_t instr);
+        int halfword_transfer(std::uint32_t instr);
+        int block_transfer(std::uint32_t instr);
+        int msr(std::uint32_t instr);
+        int mrs(std::uint32_t instr);
+        int swi(std::uint32_t instr);
+        int swp(std::uint32_t instr);
+        int alu(std::uint32_t instr);
+        int mul(std::uint32_t instr);
 
         bool thumb_enabled();
-        bool condition(const std::uint32_t instr);
+        bool condition(std::uint32_t instr);
         void change_cpsr_mode(Mode mode);
 
         std::uint32_t m_pipeline;
         bool m_pipeline_invalid;
         std::array<Registers, 6> m_banked_regs{};
         Registers& m_regs = m_banked_regs[0];
-        Flags flags;
+        Flags m_flags;
         Memory m_mem;
 };
 
