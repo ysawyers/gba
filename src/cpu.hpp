@@ -59,7 +59,7 @@ class CPU {
     public:
         CPU(const std::string&& rom_filepath);
 
-        void render_frame();
+        std::array<std::array<std::uint16_t, 240>, 160>& render_frame();
 
         // used as indices for banked registers
         enum class Mode {

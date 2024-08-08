@@ -239,7 +239,7 @@ int CPU::halfword_transfer(std::uint32_t instr) {
         auto rd = (instr >> 12) & 0xF;
 
         std::int32_t offset = (i ? ((((instr >> 8) & 0xF) << 4) | (instr & 0xF)) : 
-            m_regs[instr & 0xF]) * -(u & 0);
+            m_regs[instr & 0xF]) * (-1 + (u * 2));
 
         auto opcode = (instr >> 5) & 0x3;
         auto addr = m_regs[rn] + (p * offset);
@@ -381,9 +381,14 @@ int CPU::alu(std::uint32_t instr) {
         case 0x9:
             std::cout << "TEQ" << std::endl;
             std::exit(1);
-        case 0xA:
-            std::cout << "CMP" << std::endl;
-            std::exit(1);
+        case 0xA: {
+            std::uint32_t result = operand_1 - operand_2;
+            m_flags.n = result >> 31;
+            m_flags.z = result == 0;
+            m_flags.c = ((operand_1 >> 31) + (operand_2 >> 31)) > (result >> 31);
+            m_flags.z = ((operand_1 >> 31) == (operand_2 >> 31)) && ((operand_1 >> 31) != (result >> 31));
+            break;
+        }
         case 0xB:
             std::cout << "CMN" << std::endl;
             std::exit(1);
@@ -433,11 +438,12 @@ int CPU::execute() {
     }
 }
 
-void CPU::render_frame() {
+std::array<std::array<std::uint16_t, 240>, 160>& CPU::render_frame() {
     int cycles = 0;
     while (cycles < cycles_per_frame) {
         int instr_cycles = execute();
         m_mem.tick_components(instr_cycles);
         cycles += instr_cycles;
     }
+    return m_mem.get_frame();
 }

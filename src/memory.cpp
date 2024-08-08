@@ -63,6 +63,7 @@ std::uint16_t Memory::read_halfword(std::uint32_t addr) {
     case 0x03: return *reinterpret_cast<std::uint16_t*>(m_iwram + ((addr - 0x03000000) & 0x7FFF));
     case 0x04:
         switch (addr) {
+        case 0x04000006: return m_ppu.m_vcount;
         default:
             if (addr >= 0x04000000 && addr <= 0x04000054) {
                 return *reinterpret_cast<std::uint16_t*>(m_ppu.m_mmio + (addr - 0x04000000));
@@ -133,10 +134,8 @@ void Memory::write_halfword(std::uint32_t addr, std::uint16_t value) {
         }
 
     pallete_ram_reg:
-        std::cout << "pallete ram" << std::endl;
-        std::exit(1);
-        // *(uint16_t *)(pallete_ram + ((addr - 0x05000000) & 0x3FF)) = halfword;
-        // return;
+        *reinterpret_cast<std::uint16_t*>(m_ppu.m_pallete_ram + ((addr - 0x05000000) & 0x3FF)) = value;
+        return;
 
     vram_reg:
         addr = (addr - 0x06000000) & 0x1FFFF;
@@ -157,4 +156,8 @@ void Memory::write_halfword(std::uint32_t addr, std::uint16_t value) {
 
 void Memory::tick_components(int cycles) {
     m_ppu.tick(cycles);
+}
+
+std::array<std::array<std::uint16_t, 240>, 160>& Memory::get_frame() {
+    return m_ppu.m_frame;
 }

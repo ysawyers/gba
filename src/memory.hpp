@@ -36,6 +36,8 @@ class Memory {
 
         void tick_components(int cycles);
 
+        std::array<std::array<std::uint16_t, 240>, 160>& get_frame();
+
     private:
         std::uint8_t* m_bios;
         std::uint8_t* m_ewram;
