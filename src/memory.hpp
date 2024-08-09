@@ -28,6 +28,8 @@ class Memory {
 
         std::uint16_t read_halfword(std::uint32_t addr);
 
+        std::uint8_t read_byte(std::uint32_t addr);
+
         void write_word(std::uint32_t addr, std::uint32_t value);
 
         void write_halfword(std::uint32_t addr, std::uint16_t value);

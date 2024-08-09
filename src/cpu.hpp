@@ -5,48 +5,7 @@
 
 #include "memory.hpp"
 
-struct Registers {
-    std::uint32_t r0 = 0;
-    std::uint32_t r1 = 0;
-    std::uint32_t r2 = 0;
-    std::uint32_t r3 = 0;
-    std::uint32_t r4 = 0;
-    std::uint32_t r5 = 0;
-    std::uint32_t r6 = 0;
-    std::uint32_t r7 = 0;
-    std::uint32_t r8 = 0;
-    std::uint32_t r9 = 0;
-    std::uint32_t r10 = 0;
-    std::uint32_t r11 = 0;
-    std::uint32_t r12 = 0;
-    std::uint32_t r13 = 0; // SP
-    std::uint32_t r14 = 0; // LR
-    std::uint32_t r15 = 0; // PC
-    std::uint32_t cpsr = 0;
-    std::uint32_t spsr = 0;
-
-    std::uint32_t& operator[](std::size_t reg) {
-        switch (reg) {
-        case 0x0: return r0;
-        case 0x1: return r1;
-        case 0x2: return r2;
-        case 0x3: return r3;
-        case 0x4: return r4;
-        case 0x5: return r5;
-        case 0x6: return r6;
-        case 0x7: return r7;
-        case 0x8: return r8;
-        case 0x9: return r9;
-        case 0xA: return r10;
-        case 0xB: return r11;
-        case 0xC: return r12;
-        case 0xD: return r13;
-        case 0xE: return r14;
-        case 0xF: return r15;
-        }
-        std::unreachable();
-    };
-};
+typedef std::array<std::uint32_t, 17> Registers;
 
 struct Flags {
     bool n = false;
@@ -72,7 +31,7 @@ class CPU {
         };
 
         enum class ShiftType {
-            LSL, LSR, ASR, ROR 
+            LSL = 0, LSR, ASR, ROR 
         };
 
     private:

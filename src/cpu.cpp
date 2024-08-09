@@ -8,15 +8,15 @@ constexpr int word_access = 4;
 constexpr int cycles_per_frame = 280896;
 
 bool CPU::thumb_enabled() {
-    return (m_regs.cpsr >> 5) & 1;
+    return (m_regs[16] >> 5) & 1;
 }
 
 void CPU::change_cpsr_mode(Mode mode) {
     m_regs = m_banked_regs[std::to_underlying(mode)];
-    bool n = (m_regs.cpsr >> 31) & 1;
-    bool z = (m_regs.cpsr >> 30) & 1;
-    bool c = (m_regs.cpsr >> 29) & 1;
-    bool v = (m_regs.cpsr >> 28) & 1;
+    bool n = (m_regs[16] >> 31) & 1;
+    bool z = (m_regs[16] >> 30) & 1;
+    bool c = (m_regs[16] >> 29) & 1;
+    bool v = (m_regs[16] >> 28) & 1;
     m_flags = Flags{n, z, c, v};
 }
 
@@ -49,28 +49,28 @@ CPU::CPU(const std::string&& rom_filepath) : m_pipeline(0), m_pipeline_invalid(t
     m_mem.load_rom(std::move(rom_filepath));
 
     // initializes registers while bios is unimplemented
-    m_banked_regs[std::to_underlying(Mode::SVC)].r13 = 0x03007FE0;
-    m_banked_regs[std::to_underlying(Mode::IRQ)].r13 = 0x03007FA0;
-    m_regs.r13 = 0x03007F00;
-    m_regs.r14 = 0x08000000;
-    m_regs.r15 = 0x08000000;
+    m_banked_regs[std::to_underlying(Mode::SVC)][13] = 0x03007FE0;
+    m_banked_regs[std::to_underlying(Mode::IRQ)][13] = 0x03007FA0;
+    m_regs[13] = 0x03007F00;
+    m_regs[14] = 0x08000000;
+    m_regs[15] = 0x08000000;
 
-    m_banked_regs[std::to_underlying(Mode::SYS)].cpsr = 0b10000;
-    m_banked_regs[std::to_underlying(Mode::FIQ)].cpsr = 0b10001;
-    m_banked_regs[std::to_underlying(Mode::IRQ)].cpsr = 0b10010;
-    m_banked_regs[std::to_underlying(Mode::SVC)].cpsr = 0b10011;
-    m_banked_regs[std::to_underlying(Mode::ABT)].cpsr = 0b10111;
-    m_banked_regs[std::to_underlying(Mode::UND)].cpsr = 0b11011;
+    m_banked_regs[std::to_underlying(Mode::SYS)][16] = 0b10000;
+    m_banked_regs[std::to_underlying(Mode::FIQ)][16] = 0b10001;
+    m_banked_regs[std::to_underlying(Mode::IRQ)][16] = 0b10010;
+    m_banked_regs[std::to_underlying(Mode::SVC)][16] = 0b10011;
+    m_banked_regs[std::to_underlying(Mode::ABT)][16] = 0b10111;
+    m_banked_regs[std::to_underlying(Mode::UND)][16] = 0b11011;
 }
 
 std::uint32_t CPU::fetch() {
     std::uint32_t instr = 0;
     if (thumb_enabled()) {
-        instr = m_mem.read_halfword(m_regs.r15);
-        m_regs.r15 += halfword_access;
+        instr = m_mem.read_halfword(m_regs[15]);
+        m_regs[15] += halfword_access;
     } else {
-        instr = m_mem.read_word(m_regs.r15);
-        m_regs.r15 += word_access;
+        instr = m_mem.read_word(m_regs[15]);
+        m_regs[15] += word_access;
     }
     return instr;
 }
@@ -207,8 +207,8 @@ int CPU::branch(std::uint32_t instr) {
     if (condition(instr)) {
         bool bl = (instr >> 24) & 1;
         std::int32_t nn = (static_cast<std::int32_t>((instr & 0xFFFFFF) << 8) >> 8) * 4;
-        if (bl) m_regs.r14 = m_regs.r15 - 4;
-        m_regs.r15 += nn;
+        if (bl) m_regs[14] = m_regs[15] - 4;
+        m_regs[15] += nn;
         m_pipeline_invalid = true;
     }
     return 1;
@@ -223,7 +223,59 @@ int CPU::branch_ex(std::uint32_t instr) {
 
 int CPU::single_transfer(std::uint32_t instr) {
     if (condition(instr)) {
-        std::cout << "single transfer" << std::endl;
+        bool i = (instr >> 25) & 1;
+        bool p = (instr >> 24) & 1;
+        bool u = (instr >> 23) & 1;
+        bool b = (instr >> 22) & 1;
+        bool w = (instr >> 21) & 1;
+        bool l = (instr >> 20) & 1;
+        std::uint8_t rn = (instr >> 16) & 0xF;
+        std::uint8_t rd = (instr >> 12) & 0xF;
+        std::uint32_t offset = 0;
+
+        if (i) {
+            std::uint8_t rm = instr & 0xF;
+            std::uint32_t operand = m_regs[rm];
+            std::uint8_t shift_amount = (instr >> 7) & 0x1F;
+            CPU::ShiftType shift_type = static_cast<CPU::ShiftType>((instr >> 5) & 3);
+
+            bool carry_out = false;
+            barrel_shifter(operand, carry_out, shift_type, shift_amount, true);
+            offset = operand;
+        } else {
+            offset = instr & 0xFFF;
+        }
+        offset *= (-1 + (u * 2));
+
+        std::uint32_t addr = m_regs[rn] + (p * offset);
+        bool writeback = !p || (p && w);
+
+        if (p && b && l && !w && (rd == 0xF) && (((instr >> 28) & 0xF) == 0xF)) {
+            printf("PLD INSTRUCTION!\n");
+            exit(1);
+        }
+
+        if (!p && w) {
+            printf("memory manage bit is set\n");
+            exit(1);
+        }
+
+        if (l) {
+            // https://problemkaputt.de/gbatek.htm#armcpumemoryalignments
+            // LDR alignments are weird.
+            m_regs[rd] = b ? m_mem.read_byte(addr) : ror(m_mem.read_word(addr), (addr & 0x3) * 8);
+        } else {
+            std::uint32_t value = m_regs[rd] + ((rd == 0xF) << 2);
+            if (b) {
+                m_mem.write_byte(addr, value);
+            } else {
+                m_mem.write_word(addr, value);
+            }
+        }
+
+        if (writeback && (!l || !(rn == rd))) {
+            m_regs[rn] += (((rn == 0xF) << 2) + offset);
+        }
     }
     return 1;
 }
@@ -295,7 +347,26 @@ int CPU::block_transfer(std::uint32_t instr) {
 
 int CPU::mrs(std::uint32_t instr) {
     if (condition(instr)) {
-        std::cout << "mrs" << std::endl;
+        bool i = (instr >> 25) & 1;
+        bool psr = (instr >> 22) & 1;
+        bool f = (instr >> 19) & 1;
+        bool c = (instr >> 16) & 1;
+
+        std::uint8_t shift_amount = ((instr >> 8) & 0xF) * 2;
+        auto imm = instr & 0xFF;
+        std::uint32_t operand = i ? ror(imm, shift_amount) : m_regs[instr & 0xF];
+
+        if (psr) {
+            if (f) {
+                m_regs[16] = (m_regs[16] & 0x00FFFFFF) | (operand & 0xFF000000);
+            }
+            if (c) {
+                m_regs[16] = (m_regs[16] & 0xFFFFFF00) | (operand & 0x000000FF);
+            }
+        } else {
+            std::cout << "!psr" << std::endl;
+            std::exit(1);
+        }
     }
     return 1;
 }
@@ -304,6 +375,7 @@ int CPU::msr(std::uint32_t instr) {
     if (condition(instr)) {
         std::cout << "msr" << std::endl;
     }
+    std::exit(1);
     return 1;
 }
 
