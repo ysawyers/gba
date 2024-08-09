@@ -67,7 +67,7 @@ void PPU::tick(int cycles) {
         } else if (m_scanline_cycles == 1004) {
             // hblank
             *reinterpret_cast<std::uint16_t*>(m_mmio + 4) |= 2;
-        } else if (m_scanline_cycles == 32) {
+        } else if (m_scanline_cycles == 960) {
             auto reg_dispct = get_dispcnt();
             std::uint8_t enable = reg_dispct >> 8;
             if (enable) [[likely]] {
