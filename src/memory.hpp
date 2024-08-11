@@ -9,19 +9,13 @@
 class Memory {
     public:
         Memory() {
-            m_bios = new std::uint8_t[0x4000];
-            m_ewram = new std::uint8_t[0x40000];
-            m_iwram = new std::uint8_t[0x8000];
-            m_rom = new std::uint8_t[0x2000000];
+            m_bios.resize(0x4000);
+            m_ewram.resize(0x40000);
+            m_iwram.resize(0x8000);
+            m_rom.resize(0x2000000);
         }
 
-        ~Memory() {
-            delete m_bios;
-            delete m_ewram;
-            delete m_iwram;
-            delete m_rom;
-        }
-
+        void load_bios();
         void load_rom(const std::string&& rom_filepath);
     
         std::uint32_t read_word(std::uint32_t addr);
@@ -41,10 +35,10 @@ class Memory {
         std::array<std::array<std::uint16_t, 240>, 160>& get_frame();
 
     private:
-        std::uint8_t* m_bios;
-        std::uint8_t* m_ewram;
-        std::uint8_t* m_iwram;
-        std::uint8_t* m_rom;
+        std::vector<std::uint8_t> m_bios;
+        std::vector<std::uint8_t> m_ewram;
+        std::vector<std::uint8_t> m_iwram;
+        std::vector<std::uint8_t> m_rom;
         PPU m_ppu;
 };
 

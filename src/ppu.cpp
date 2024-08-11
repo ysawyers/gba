@@ -33,8 +33,13 @@ void PPU::scanline_bitmap_3() {
 }
 
 void PPU::scanline_bitmap_4() {
-    std::cout << "scanline bitmap 4" << std::endl;
-    std::exit(1);
+    std::uint8_t *vram_base_ptr = m_vram;
+    if ((get_dispcnt() >> 4) & 1) vram_base_ptr += 0xA000;
+
+    for (int col = 0; col < frame_width; col++) {
+        std::uint8_t pallete_idx = *(vram_base_ptr + (m_vcount * frame_width) + col);
+        m_frame[m_vcount][col] = *reinterpret_cast<uint16_t*>(m_pallete_ram + pallete_idx * 2);
+    }
 }
 
 void PPU::scanline_bitmap_5() {

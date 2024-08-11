@@ -3,6 +3,20 @@
 #include <fstream>
 #include <iostream>
 
+void Memory::load_bios() {
+    FILE *fp = fopen("roms/bios.bin", "rb");
+    if (fp == NULL) {
+        throw std::runtime_error("failed to open bios file");
+    }
+
+    fseek(fp, 0, SEEK_END);
+    size_t size = ftell(fp);
+    fseek(fp, 0, SEEK_SET);
+    fread(m_bios.data(), sizeof(std::uint8_t), size, fp);
+    
+    fclose(fp);
+}
+
 void Memory::load_rom(const std::string&& rom_filepath) {
     FILE *fp = fopen(rom_filepath.c_str(), "rb");
     if (fp == NULL) {
@@ -12,8 +26,8 @@ void Memory::load_rom(const std::string&& rom_filepath) {
     fseek(fp, 0, SEEK_END);
     size_t size = ftell(fp);
     fseek(fp, 0, SEEK_SET);
-    fread(m_rom, sizeof(std::uint8_t), size, fp);
-    
+    fread(m_rom.data(), sizeof(std::uint8_t), size, fp);
+
     fclose(fp);
 }
 
@@ -21,9 +35,9 @@ std::uint32_t Memory::read_word(std::uint32_t addr) {
     addr &= ~3;
 
     switch ((addr >> 24) & 0xFF) {
-    case 0x00: return *reinterpret_cast<std::uint32_t*>(m_bios + addr);
-    case 0x02: return *reinterpret_cast<std::uint32_t*>(m_ewram + ((addr - 0x02000000) & 0x3FFFF));
-    case 0x03: return *reinterpret_cast<std::uint32_t*>(m_iwram + ((addr - 0x03000000) & 0x7FFF));
+    case 0x00: return *reinterpret_cast<std::uint32_t*>(m_bios.data() + addr);
+    case 0x02: return *reinterpret_cast<std::uint32_t*>(m_ewram.data() + ((addr - 0x02000000) & 0x3FFFF));
+    case 0x03: return *reinterpret_cast<std::uint32_t*>(m_iwram.data() + ((addr - 0x03000000) & 0x7FFF));
     case 0x04:
         switch (addr) {
         default:
@@ -46,7 +60,7 @@ std::uint32_t Memory::read_word(std::uint32_t addr) {
     case 0x0A:
     case 0x0B:
     case 0x0C:
-    case 0x0D: return *reinterpret_cast<std::uint32_t*>(m_rom + ((addr - 0x08000000) & 0x1FFFFFF));
+    case 0x0D: return *reinterpret_cast<std::uint32_t*>(m_rom.data() + ((addr - 0x08000000) & 0x1FFFFFF));
     case 0x0E:
         printf("cart ram\n");
         exit(1);
@@ -58,9 +72,9 @@ std::uint16_t Memory::read_halfword(std::uint32_t addr) {
     addr &= ~1;
 
     switch ((addr >> 24) & 0xFF) {
-    case 0x00: return *reinterpret_cast<std::uint16_t*>(m_bios + addr);
-    case 0x02: return *reinterpret_cast<std::uint16_t*>(m_ewram + ((addr - 0x02000000) & 0x3FFFF));
-    case 0x03: return *reinterpret_cast<std::uint16_t*>(m_iwram + ((addr - 0x03000000) & 0x7FFF));
+    case 0x00: return *reinterpret_cast<std::uint16_t*>(m_bios.data() + addr);
+    case 0x02: return *reinterpret_cast<std::uint16_t*>(m_ewram.data() + ((addr - 0x02000000) & 0x3FFFF));
+    case 0x03: return *reinterpret_cast<std::uint16_t*>(m_iwram.data() + ((addr - 0x03000000) & 0x7FFF));
     case 0x04:
         switch (addr) {
         case 0x04000006: return m_ppu.m_vcount;
@@ -84,7 +98,7 @@ std::uint16_t Memory::read_halfword(std::uint32_t addr) {
     case 0x0A:
     case 0x0B:
     case 0x0C:
-    case 0x0D: return *reinterpret_cast<std::uint16_t*>(m_rom + ((addr - 0x08000000) & 0x1FFFFFF));
+    case 0x0D: return *reinterpret_cast<std::uint16_t*>(m_rom.data() + ((addr - 0x08000000) & 0x1FFFFFF));
     case 0x0E:
         printf("cart ram\n");
         exit(1);
@@ -124,7 +138,66 @@ std::uint8_t Memory::read_byte(std::uint32_t addr) {
 }
 
 void Memory::write_word(std::uint32_t addr, std::uint32_t value) {
+    addr &= ~3;
 
+    static void *jump_table[] = {
+        &&illegal_write, &&illegal_write, &&external_wram_reg, &&internal_wram_reg,
+        &&mapped_registers, &&pallete_ram_reg, &&vram_reg, &&oam_reg, &&illegal_write,
+        &&illegal_write, &&illegal_write, &&illegal_write, &&illegal_write, &&illegal_write,
+        &&cart_ram_reg, &&cart_ram_reg
+    };
+
+    goto *jump_table[(addr >> 24) & 0xF];
+
+    illegal_write: return;
+
+    external_wram_reg:
+        *reinterpret_cast<std::uint32_t*>(m_ewram.data() + ((addr - 0x02000000) & 0x3FFFF)) = value;
+        return;
+    
+    internal_wram_reg:
+        *reinterpret_cast<std::uint32_t*>(m_iwram.data() + ((addr - 0x03000000) & 0x7FFF)) = value;
+        return;
+
+    mapped_registers:
+        std::cout << "write word to mapped registers\n";
+        std::exit(1);
+
+        // switch (addr) {
+        // case 0x04000000:
+        //     *(uint32_t *)ppu_mmio = word;
+        //     uint8_t mode = (*ppu_mmio >> 8) & 0x1F;
+        //     is_rendering_bitmap = mode == 3 | mode == 4 | mode == 5;
+        //     return;
+        // case 0x04000208:
+        //     reg_ime = word;
+        //     return;
+        // default:
+        //     if (addr >= 0x04000000 && addr <= 0x04000054) {
+        //         *(uint32_t *)(ppu_mmio + (addr - 0x04000000)) = word;
+        //     } else {
+        //         printf("[write] unmapped hardware register: %08X\n", addr);
+        //         exit(1);
+        //     }
+        // }
+
+    pallete_ram_reg:
+        *reinterpret_cast<std::uint32_t*>(m_ppu.m_pallete_ram + ((addr - 0x05000000) & 0x3FF)) = value;
+        return;
+
+    vram_reg:
+        addr = (addr - 0x06000000) & 0x1FFFF;
+        if (addr >= 0x18000) addr -= 0x8000;
+        *reinterpret_cast<std::uint32_t*>(m_ppu.m_vram + addr) = value;
+        return;
+
+    oam_reg:
+        *reinterpret_cast<std::uint32_t*>(m_ppu.m_oam + ((addr - 0x07000000) & 0x3FF)) = value;
+        return;
+    
+    cart_ram_reg:
+        printf("cart ram write unhandled\n");
+        exit(1);
 }
 
 void Memory::write_halfword(std::uint32_t addr, std::uint16_t value) {
@@ -142,11 +215,11 @@ void Memory::write_halfword(std::uint32_t addr, std::uint16_t value) {
     illegal_write: return;
 
     external_wram_reg:
-        *reinterpret_cast<std::uint16_t*>(m_ewram + ((addr - 0x02000000) & 0x3FFFF)) = value;
+        *reinterpret_cast<std::uint16_t*>(m_ewram.data() + ((addr - 0x02000000) & 0x3FFFF)) = value;
         return;
 
     internal_wram_reg:
-        *reinterpret_cast<std::uint16_t*>(m_iwram + ((addr - 0x03000000) & 0x7FFF)) = value;
+        *reinterpret_cast<std::uint16_t*>(m_iwram.data() + ((addr - 0x03000000) & 0x7FFF)) = value;
         return;
 
     mapped_registers:
