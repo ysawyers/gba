@@ -201,9 +201,12 @@ bool CPU::barrel_shifter(
         operand = !(shift_amount > 31) * (operand << (shift_amount & 31));
         return nonzero_shift;
     }
-    case ShiftType::LSR:
-        printf("LSR\n");
-        std::exit(1);
+    case ShiftType::LSR: {
+        std::uint32_t adjusted_shift = ((!(shift_amount == 0) * (shift_amount - 1)) + ((shift_amount == 0) * 31));
+        carry_out = ((operand >> (adjusted_shift & 31)) & 1) * !(shift_amount > 32);
+        operand = ((operand >> adjusted_shift) * !(shift_amount > 32)) >> 1;
+        return true;
+    }
     case ShiftType::ASR:
         std::cout << "ASR UNIMPLEMEENTED" << std::endl;
         std::exit(1);
