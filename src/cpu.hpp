@@ -11,24 +11,43 @@
 
 #include "memory.hpp"
 
+// used as indices for banked registers in CPU
+enum Mode {
+    SYS = 0, FIQ, SVC, ABT, IRQ, UND, UNSET
+};
+
 struct Flags {
     Flags() : n(0), z(0), c(0), v(0) {};
+
+    Flags(Flags& flags) {
+        n = 1;
+        z = 1;
+        c = 1;
+        v = 1;
+    }
+
     std::uint8_t n, z, c, v;
 };
 
 class Registers {
     public:
-        Registers() : mode(0) {};
+        Registers() : mode(UNSET) {};
+
+        Registers(Registers& regs) {
+            flags = regs.flags;
+            mode = regs.mode;
+            std::copy(regs.m_list.begin(), regs.m_list.end(), m_list.begin());
+        }
 
         std::uint32_t& operator[](std::uint8_t reg) {
-            return list[reg];
+            return m_list[reg];
         }
 
         Flags flags;
-        std::uint32_t mode = 0;
+        std::uint8_t mode;
 
     private:
-        std::array<std::uint32_t, 16> list;
+        std::array<std::uint32_t, 16> m_list;
 };
 
 class CPU {
@@ -36,11 +55,6 @@ class CPU {
         CPU(const std::string&& rom_filepath);
 
         std::array<std::array<std::uint16_t, 240>, 160>& render_frame();
-
-        // used as indices for banked registers
-        enum class Mode {
-            SYS = 0, USR = 0, FIQ, SVC, ABT, IRQ, UND
-        };
 
         enum class InstrFormat {
             NOP, B, BX, SWP, MRS, SWI, MUL, MSR, ALU, 
@@ -86,13 +100,16 @@ class CPU {
 
         bool condition(std::uint32_t instr);
         std::uint32_t ror(std::uint32_t operand, std::size_t shift_amount);
+        Registers& get_bank(std::uint8_t mode);
+        std::uint32_t get_psr();
+        std::uint32_t get_cpsr();
         void dump_state();
 
         std::uint32_t m_pipeline;
         bool m_pipeline_invalid;
-        bool thumb_enabled;
+        bool m_thumb_enabled;
         std::array<Registers, 6> m_banked_regs{};
-        Registers& m_regs = m_banked_regs[0];
+        Registers m_regs = m_banked_regs[SYS];
         Memory m_mem;
 };
 

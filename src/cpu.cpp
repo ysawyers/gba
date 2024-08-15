@@ -7,28 +7,42 @@ constexpr int halfword_access = 2;
 constexpr int word_access = 4;
 constexpr int cycles_per_frame = 280896;
 
-CPU::CPU(const std::string&& rom_filepath) : m_pipeline(0), m_pipeline_invalid(true), thumb_enabled(false) {
+CPU::CPU(const std::string&& rom_filepath) : m_pipeline(0), m_pipeline_invalid(true), m_thumb_enabled(false) {
     m_mem.load_bios();
     m_mem.load_rom(std::move(rom_filepath));
+    m_banked_regs[SYS].mode = 0x1F;
+    m_regs.mode = 0x1F;
 
     // initializes registers while bios is unimplemented
-    m_banked_regs[std::to_underlying(Mode::SVC)][13] = 0x03007FE0;
-    m_banked_regs[std::to_underlying(Mode::IRQ)][13] = 0x03007FA0;
+    m_banked_regs[SVC][13] = 0x03007FE0;
+    m_banked_regs[IRQ][13] = 0x03007FA0;
     m_regs[13] = 0x03007F00;
     m_regs[14] = 0x08000000;
     m_regs[15] = 0x08000000;
-
-    m_banked_regs[std::to_underlying(Mode::SYS)].mode = 0b11111;
-    m_banked_regs[std::to_underlying(Mode::FIQ)].mode = 0b10001;
-    m_banked_regs[std::to_underlying(Mode::IRQ)].mode = 0b10010;
-    m_banked_regs[std::to_underlying(Mode::SVC)].mode = 0b10011;
-    m_banked_regs[std::to_underlying(Mode::ABT)].mode = 0b10111;
-    m_banked_regs[std::to_underlying(Mode::UND)].mode = 0b11011;
 }
 
-void CPU::safe_reg_assign(std::uint8_t reg, std::uint32_t value) {
-    m_regs[reg] = value;
-    m_pipeline_invalid |= (reg == 0xF);
+Registers& CPU::get_bank(std::uint8_t mode) {
+    switch (mode) {
+    case 0b10000:
+    case 0b11111: return m_banked_regs[SYS];
+    case 0b10001: return m_banked_regs[FIQ];
+    case 0b10010: return m_banked_regs[IRQ];
+    case 0b10011: return m_banked_regs[SVC];
+    case 0b10111: return m_banked_regs[ABT];
+    case 0b11011: return m_banked_regs[UND];
+    }
+    std::unreachable();
+}
+
+std::uint32_t CPU::get_psr() {
+    std::uint8_t flags = (m_regs.flags.n << 3) | (m_regs.flags.z << 2) | (m_regs.flags.c << 1) | m_regs.flags.v;
+    return static_cast<std::uint32_t>(flags << 28) | m_regs.mode;
+}
+
+std::uint32_t CPU::get_cpsr() {
+    auto& sys = m_banked_regs[SYS];
+    std::uint8_t flags = (sys.flags.n << 3) | (sys.flags.z << 2) | (sys.flags.c << 1) | sys.flags.v;
+    return static_cast<std::uint32_t>(flags << 28) | sys.mode;
 }
 
 bool CPU::condition(std::uint32_t instr) {
@@ -56,9 +70,14 @@ std::uint32_t CPU::ror(std::uint32_t operand, std::size_t shift_amount) {
     return (operand >> (shift_amount & 31)) | (operand << ((-shift_amount) & 31));
 }
 
+void CPU::safe_reg_assign(std::uint8_t reg, std::uint32_t value) {
+    m_regs[reg] = value;
+    m_pipeline_invalid |= (reg == 0xF);
+}
+
 std::uint32_t CPU::fetch() {
     std::uint32_t instr = 0;
-    if (thumb_enabled) {
+    if (m_thumb_enabled) {
         instr = m_mem.read_halfword(m_regs[15]);
         m_regs[15] += halfword_access;
     } else {
@@ -72,7 +91,7 @@ std::uint32_t CPU::fetch() {
 CPU::InstrFormat CPU::decode(std::uint32_t instr) {
     m_pipeline = fetch();
 
-    if (thumb_enabled) {
+    if (m_thumb_enabled) {
         switch ((instr >> 13) & 0x7) {
         case 0x0:
             if (((instr >> 11) & 0x3) == 0x3)  {
@@ -202,14 +221,18 @@ bool CPU::barrel_shifter(
         return nonzero_shift;
     }
     case ShiftType::LSR: {
-        std::uint32_t adjusted_shift = ((!(shift_amount == 0) * (shift_amount - 1)) + ((shift_amount == 0) * 31));
+        std::uint32_t adjusted_shift = (((shift_amount != 0) * (shift_amount - 1)) + ((shift_amount == 0) * 31));
         carry_out = ((operand >> (adjusted_shift & 31)) & 1) * !(shift_amount > 32);
         operand = ((operand >> adjusted_shift) * !(shift_amount > 32)) >> 1;
         return true;
     }
-    case ShiftType::ASR:
-        std::cout << "ASR UNIMPLEMEENTED" << std::endl;
-        std::exit(1);
+    case ShiftType::ASR: {
+        bool toggle = (shift_amount == 0) | (shift_amount > 31);
+        std::uint32_t adjusted_shift = ((!toggle * (shift_amount - 1)) + (toggle * 31));
+        carry_out = (operand >> adjusted_shift) & 1;
+        operand = (static_cast<std::int32_t>(operand) >> adjusted_shift) >> !toggle;
+        return true;
+    }
     case ShiftType::ROR:
         if (reg_imm_shift && !shift_amount) {
             // ROR#0 (shift by immediate): Interpreted as RRX#1 (RCR), like ROR#1, but Op2 Bit 31 set to old C.
@@ -241,10 +264,10 @@ int CPU::branch_ex(std::uint32_t instr) {
         std::uint8_t rn = instr & 0xF;
         if (((instr >> 4) & 0xF) == 0x1) {
             if (m_regs[rn] & 1) {
-                thumb_enabled = true;
+                m_thumb_enabled = true;
                 m_regs[15] = m_regs[rn] & ~0x1;
             } else {
-                thumb_enabled = false;
+                m_thumb_enabled = false;
                 m_regs[15] = m_regs[rn] & ~0x3;
             }
         } else {
@@ -273,7 +296,7 @@ int CPU::single_transfer(std::uint32_t instr) {
             std::uint8_t rm = instr & 0xF;
             std::uint32_t operand = m_regs[rm];
             std::uint8_t shift_amount = (instr >> 7) & 0x1F;
-            CPU::ShiftType shift_type = static_cast<CPU::ShiftType>((instr >> 5) & 3);
+            ShiftType shift_type = static_cast<ShiftType>((instr >> 5) & 3);
 
             bool carry_out = false;
             barrel_shifter(operand, carry_out, shift_type, shift_amount, true);
@@ -283,7 +306,7 @@ int CPU::single_transfer(std::uint32_t instr) {
         }
         offset *= (-1 + (u * 2));
 
-        std::uint32_t addr = m_regs[rn] + (p * offset);
+        std::uint32_t addr = m_regs[rn] + (p ? offset : 0);
         bool writeback = !p || (p && w);
 
         if (l) {
@@ -300,7 +323,7 @@ int CPU::single_transfer(std::uint32_t instr) {
         }
 
         if (writeback && (!l || !(rn == rd))) {
-            safe_reg_assign(rn, rn + (((rd == 0xF) * 4) + offset));
+            safe_reg_assign(rn, m_regs[rn] + (((rd == 0xF) * 4) + offset));
         }
     }
     return 1;
@@ -325,21 +348,24 @@ int CPU::halfword_transfer(std::uint32_t instr) {
         bool writeback = (p && w) || !p;
 
         if (l) {
+            bool misaligned_read = addr & 1;
             // https://problemkaputt.de/gbatek.htm#armcpumemoryalignments
             // LDRH and LDRSH alignments are weird.
             switch (opcode) {
             case 0x1: {
-                safe_reg_assign(rd, addr & 1 ? ror(m_mem.read_halfword(addr - 1), 8) 
-                    : m_mem.read_halfword(addr));
+                safe_reg_assign(rd, misaligned_read ? 
+                    ror(m_mem.read_halfword(addr - 1), 8) : m_mem.read_halfword(addr));
                 break;
             }
             case 0x2: {
-                std::cout << "LDRSB" << std::endl;
-                std::exit(1);
+                safe_reg_assign(rd, static_cast<std::int32_t>(static_cast<std::int8_t>(m_mem.read_byte(addr))));
+                break;
             }
             case 0x3: {
-                std::cout << "LDRSH" << std::endl;
-                std::exit(1);
+                std::uint32_t value = misaligned_read ? static_cast<std::int32_t>(static_cast<std::int8_t>(m_mem.read_byte(addr)))
+                    : static_cast<std::int32_t>(static_cast<std::int16_t>(m_mem.read_halfword(addr)));
+                safe_reg_assign(rd, value);
+                break;
             }
             }
         } else {
@@ -360,12 +386,13 @@ int CPU::halfword_transfer(std::uint32_t instr) {
         }
 
         if (writeback && (!l || !(rn == rd))) {
-            safe_reg_assign(rn, rn + (offset + ((rn == 0xF) * 4)));
+            safe_reg_assign(rn, m_regs[rn] + (offset + ((rn == 0xF) * 4)));
         }
     }
     return 1;
 }
 
+// TODO: implement user bank transfer
 int CPU::block_transfer(std::uint32_t instr) {
     if (condition(instr)) {
         printf("block data transfer\n");
@@ -414,7 +441,7 @@ int CPU::block_transfer(std::uint32_t instr) {
                     transfer_base_addr += direction;
                 }
         } else {
-            std::uint32_t pc_offset = thumb_enabled ? 2 : 4;
+            std::uint32_t pc_offset = m_thumb_enabled ? 2 : 4;
             for (int i = reg_start; i != reg_end; i += step)
                 if ((reg_list >> i) & 1) {
                     std::uint32_t addr = transfer_base_addr + (p * direction);
@@ -429,15 +456,13 @@ int CPU::block_transfer(std::uint32_t instr) {
 int CPU::mrs(std::uint32_t instr) {
     if (condition(instr)) {
         printf("mrs\n");
-        std::exit(1);
-
-        // bool psr = (instr >> 22) & 1;
-        // uint8_t rd = (instr >> 12) & 0xF;
-        // if (psr) {
-        //     m_regs[rd] = m_regs[16];
-        // } else {
-        //     m_regs[rd] = m_banked_regs[std::to_underlying(Mode::SYS)][16];
-        // }
+        bool psr = (instr >> 22) & 1;
+        uint8_t rd = (instr >> 12) & 0xF;
+        if (psr) {
+            m_regs[rd] = get_psr();
+        } else {
+            m_regs[rd] = get_cpsr();
+        }
     }
     return 1;
 }
@@ -452,40 +477,71 @@ int CPU::msr(std::uint32_t instr) {
 
         std::uint8_t shift_amount = ((instr >> 8) & 0xF) * 2;
         auto imm = instr & 0xFF;
+        
         std::uint32_t operand = i ? ror(imm, shift_amount) : m_regs[instr & 0xF];
+        std::uint32_t flags = operand & 0xFF000000;
+        std::uint32_t mode = operand & 0x000000FF;
 
-        auto& regs = psr ? m_regs : m_banked_regs[std::to_underlying(Mode::SYS)];
-        if (f) {
-            std::uint32_t flags = operand & 0xFF000000;
-            regs.flags.n = flags >> 31;
-            regs.flags.z = (flags >> 30) & 1;
-            regs.flags.c = (flags >> 29) & 1;
-            regs.flags.v = (flags >> 28) & 1;
-        }
-        if (c) {
-            std::uint32_t mode = operand & 0x000000FF;
-            switch (mode) {
-            case 0b10000: // USR
-            case 0b11111: // SYS
-                m_regs = m_banked_regs[std::to_underlying(Mode::SYS)];
+        if (psr) {
+            if (f) {
+                m_regs.flags.n = flags >> 31;
+                m_regs.flags.z = (flags >> 30) & 1;
+                m_regs.flags.c = (flags >> 29) & 1;
+                m_regs.flags.v = (flags >> 28) & 1;
+            }
+            if (c) {
+                if (m_banked_regs[SYS].mode == 0x1F || m_banked_regs[SYS].mode == 0x10) {
+                    m_banked_regs[SYS] = m_regs;
+                    goto swap_banks;
+                }
                 m_regs.mode = mode;
-                break;
-            case 0b10001: // FIQ
-                m_regs = m_banked_regs[std::to_underlying(Mode::FIQ)];
-                break;
-            case 0b10010: // IRQ
-                m_regs = m_banked_regs[std::to_underlying(Mode::IRQ)];
-                break;
-            case 0b10011: // SVC
-                m_regs = m_banked_regs[std::to_underlying(Mode::SVC)];
-                break;
-            case 0b10111: // ABT
-                m_regs = m_banked_regs[std::to_underlying(Mode::ABT)];
-                break;
-            case 0b11011: // UND
-                m_regs = m_banked_regs[std::to_underlying(Mode::UND)];
+            }
+        } else {
+            Registers& sys_bank = m_banked_regs[SYS];
+            if (f) {
+                sys_bank.flags.n = flags >> 31;
+                sys_bank.flags.z = (flags >> 30) & 1;
+                sys_bank.flags.c = (flags >> 29) & 1;
+                sys_bank.flags.v = (flags >> 28) & 1;
+                if (sys_bank.mode == 0x1F || sys_bank.mode == 0x10) {
+                    m_regs.flags = sys_bank.flags;
+                }
+            }
+            if (c) {
+                get_bank(sys_bank.mode) = m_regs;
+                goto swap_banks;
+            }
+        }
+        return 1;
+
+        swap_banks: {
+            switch (mode) {
+            case 0b11011:
+            case 0b10111:
+            case 0b10011:
+            case 0b10010:
+            case 0b10000: 
+            case 0b11111: {
+                auto& bank = get_bank(mode);
+                for (int i = 8; i < 15; i++) {
+                    m_regs[i] = bank[i];
+                }
                 break;
             }
+            case 0b10001: {
+                for (int i = 0; i < 6; i++) {
+                    if (i == FIQ) continue;
+                    for (int j = 8; j < 13; j++) {
+                        m_banked_regs[i][j] = m_regs[j];
+                    }
+                }
+                for (int i = 8; i < 15; i++) {
+                    m_regs[i] = m_banked_regs[FIQ][i];
+                }
+                break;
+            }
+            }
+            m_banked_regs[SYS].mode = mode;
         }
     }
     return 1;
@@ -501,8 +557,20 @@ int CPU::swi(std::uint32_t instr) {
 
 int CPU::swp(std::uint32_t instr) {
     if (condition(instr)) {
-        std::cout << "swp" << std::endl;
-        std::exit(1);
+        bool b = (instr >> 22) & 1;
+        std::uint8_t rn = (instr >> 16) & 0xF;
+        std::uint8_t rd = (instr >> 12) & 0xF;
+        std::uint8_t rm = instr & 0xF;
+
+        if (b) {
+            std::uint32_t value = m_mem.read_byte(m_regs[rn]);
+            m_mem.write_byte(m_regs[rn], m_regs[rm]);
+            safe_reg_assign(rd, value);
+        } else {
+            std::uint32_t value = ror(m_mem.read_word(m_regs[rn]), (m_regs[rn] & 0x3) * 8);
+            m_mem.write_word(m_regs[rn], m_regs[rm]);
+            safe_reg_assign(rd, value);
+        }
     }
     return 1;
 }
@@ -523,8 +591,9 @@ int CPU::alu(std::uint32_t instr) {
         if (imm) {
             std::uint8_t imm_shift = ((instr >> 8) & 0xF) * 2; 
             operand_2 = instr & 0xFF;
-            if (imm_shift)
+            if (imm_shift) {
                 carry_out_modify = barrel_shifter(operand_2, carry_out, ShiftType::ROR, imm_shift, false);
+            }
         } else {
             bool r = (instr >> 4) & 1;
             ShiftType shift_type = static_cast<ShiftType>((instr >> 5) & 0x3);
@@ -532,11 +601,13 @@ int CPU::alu(std::uint32_t instr) {
 
             operand_2 = m_regs[rm];
             if (r) {
-                std::uint32_t pc_offset = thumb_enabled ? 2 : 4;
+                std::uint32_t pc_offset = m_thumb_enabled ? 2 : 4;
                 if (rn == 0xF) operand_1 = m_regs[15] + pc_offset;
                 if (rm == 0xF) operand_2 = m_regs[15] + pc_offset;
                 std::uint8_t shift_amount = m_regs[(instr >> 8) & 0xF] & 0xFF;
-                carry_out_modify = barrel_shifter(operand_2, carry_out, shift_type, shift_amount, false);
+                if (shift_amount) {
+                    carry_out_modify = barrel_shifter(operand_2, carry_out, shift_type, shift_amount, false);
+                }
             } else {
                 std::uint8_t shift_amount = (instr >> 7) & 0x1F;
                 carry_out_modify = barrel_shifter(operand_2, carry_out, shift_type, shift_amount, true);
@@ -549,15 +620,31 @@ int CPU::alu(std::uint32_t instr) {
             if (set_cc) {
                 m_regs.flags.n = result >> 31;
                 m_regs.flags.z = !result;
-                m_regs.flags.c = carry_out;
+                if (carry_out_modify) {
+                    m_regs.flags.c = carry_out;
+                }
             }
             safe_reg_assign(rd, result);
             break;
         }
-        case 0x1:
-            std::cout << "EOR" << std::endl;
-            std::exit(1);
-        case 0x2: {
+        case 0x1: {
+            std::uint32_t result = operand_1 ^ operand_2;
+            if (set_cc) {
+                m_regs.flags.n = result >> 31;
+                m_regs.flags.z = !result;
+                if (carry_out_modify) {
+                    m_regs.flags.c = carry_out;
+                }
+            }
+            safe_reg_assign(rd, result);
+            break;
+        }
+        case 0x3: { // RSB
+            std::uint32_t temp = operand_1;
+            operand_1 = operand_2;
+            operand_2 = temp;
+        }
+        case 0x2: { // SUB
             std::uint32_t result = operand_1 - operand_2;
             if (set_cc) {
                 m_regs.flags.n = result >> 31;
@@ -568,9 +655,6 @@ int CPU::alu(std::uint32_t instr) {
             safe_reg_assign(rd, result);
             break;
         }
-        case 0x3:
-            std::cout << "RSB" << std::endl;
-            std::exit(1);
         case 0x4: { // ADD
             std::uint32_t result = operand_1 + operand_2;
             if (set_cc) {
@@ -593,6 +677,11 @@ int CPU::alu(std::uint32_t instr) {
             safe_reg_assign(rd, result);
             break;
         }
+        case 0x7: { // RSC
+            std::uint32_t temp = operand_1;
+            operand_1 = operand_2;
+            operand_2 = temp;
+        }
         case 0x6: {
             std::uint32_t result = operand_1 - operand_2 - !m_regs.flags.c;
             if (set_cc) {
@@ -604,19 +693,24 @@ int CPU::alu(std::uint32_t instr) {
             safe_reg_assign(rd, result);
             break;
         }
-        case 0x7:
-            std::cout << "RSC" << std::endl;
-            std::exit(1);
         case 0x8: {
             std::uint32_t result = operand_1 & operand_2;
             m_regs.flags.n = result >> 31;
             m_regs.flags.z = !result;
-            m_regs.flags.c = carry_out;
+            if (carry_out_modify) {
+                m_regs.flags.c = carry_out;
+            }
             break;
         }
-        case 0x9:
-            std::cout << "TEQ" << std::endl;
-            std::exit(1);
+        case 0x9: { // TEQ
+            std::uint32_t result = operand_1 ^ operand_2;
+            m_regs.flags.n = result >> 31;
+            m_regs.flags.z = !result;
+            if (carry_out_modify) {
+                m_regs.flags.c = carry_out;
+            }
+            break;
+        }
         case 0xA: { // CMP
             std::uint32_t result = operand_1 - operand_2;
             m_regs.flags.n = result >> 31;
@@ -625,16 +719,35 @@ int CPU::alu(std::uint32_t instr) {
             m_regs.flags.v = ((operand_1 >> 31) != (operand_2 >> 31)) && ((operand_1 >> 31) != (result >> 31));
             break;
         }
-        case 0xB:
-            std::cout << "CMN" << std::endl;
-            std::exit(1);
+        case 0xB: { // CMN
+            std::uint32_t result = operand_1 + operand_2;
+            m_regs.flags.n = result >> 31;
+            m_regs.flags.z = !result;
+            m_regs.flags.c = ((operand_1 >> 31) + (operand_2 >> 31) > (result >> 31));
+            m_regs.flags.v = ((operand_1 >> 31) == (operand_2 >> 31)) && ((operand_1 >> 31) != (result >> 31));
+            break;
+        }
         case 0xC: { // ORR
             std::uint32_t result = operand_1 | operand_2;
             if (set_cc) {
                 m_regs.flags.n = result >> 31;
                 m_regs.flags.z = !result;
-                m_regs.flags.c = carry_out;
+                if (carry_out_modify) {
+                    m_regs.flags.c = carry_out;
+                }
             }
+            safe_reg_assign(rd, result);
+            break;
+        }
+        case 0xE: { // BIC
+            std::uint32_t result = operand_1 & ~operand_2;
+            if (set_cc) {
+                m_regs.flags.n = result >> 31;
+                m_regs.flags.z = !result;
+                if (carry_out_modify) {
+                    m_regs.flags.c = carry_out;
+                }
+            } 
             safe_reg_assign(rd, result);
             break;
         }
@@ -644,11 +757,44 @@ int CPU::alu(std::uint32_t instr) {
             if (set_cc) {
                 m_regs.flags.n = operand_2 >> 31;
                 m_regs.flags.z = !operand_2;
-                m_regs.flags.c = carry_out_modify ? carry_out : m_regs.flags.c;
+                if (carry_out_modify) {
+                    m_regs.flags.c = carry_out;
+                }
             }
             safe_reg_assign(rd, operand_2);
             break;
-        
+        }
+
+        if ((rd == 0xF) && set_cc) [[unlikely]] {
+            get_bank(m_banked_regs[SYS].mode) = m_regs;
+            switch (m_regs.mode) {
+            case 0b11011:
+            case 0b10111:
+            case 0b10011:
+            case 0b10010:
+            case 0b10000: 
+            case 0b11111: {
+                auto& bank = get_bank(m_regs.mode);
+                for (int i = 8; i < 15; i++) {
+                    m_regs[i] = bank[i];
+                }
+                break;
+            }
+            case 0b10001: {
+                for (int i = 0; i < 6; i++) {
+                    if (i == FIQ) continue;
+                    for (int j = 8; j < 13; j++) {
+                        m_banked_regs[i][j] = m_regs[j];
+                    }
+                }
+                for (int i = 8; i < 15; i++) {
+                    m_regs[i] = m_banked_regs[FIQ][i];
+                }
+                break;
+            }
+            }
+            m_banked_regs[SYS].flags = m_regs.flags;
+            m_banked_regs[SYS].mode = m_regs.mode;
         }
     }
     return 1;
@@ -664,9 +810,15 @@ int CPU::mul(std::uint32_t instr) {
         std::uint8_t rm = instr & 0xF;
 
         switch ((instr >> 21) & 0xF) {
-        case 0x0:
-            printf("1");
-            std::exit(1);
+        case 0x0: {
+            std::uint32_t result = m_regs[rm] * m_regs[rs];
+            if (s) {
+                m_regs.flags.n = result >> 31;
+                m_regs.flags.z = !result;
+            }
+            safe_reg_assign(rd, result);
+            break;
+        }
         case 0x1: {
             std::uint32_t result = (m_regs[rm] * m_regs[rs]) + m_regs[rn];
             if (s) {
@@ -676,21 +828,54 @@ int CPU::mul(std::uint32_t instr) {
             safe_reg_assign(rd, result);
             break;
         }
-        case 0x2:
+        case 0x2: {
             printf("3");
             std::exit(1);
-        case 0x4:
-            printf("4");
-            std::exit(1);
-        case 0x5:
-            printf("5");
-            std::exit(1);
-        case 0x6:
-            printf("6");
-            std::exit(1);
-        case 0x7:
-            printf("7");
-            std::exit(1);
+        }
+        case 0x4: {
+            std::uint64_t result = static_cast<std::uint64_t>(m_regs[rm]) * m_regs[rs];
+            if (s) {
+                m_regs.flags.n = result >> 63;
+                m_regs.flags.z = !result;
+            }
+            safe_reg_assign(rn, result);
+            safe_reg_assign(rd, result >> 32);
+            break;
+        }
+        case 0x5: {
+            std::uint64_t result = static_cast<std::uint64_t>(m_regs[rm]) * m_regs[rs] 
+                + ((static_cast<std::uint64_t>(m_regs[rd]) << 32) | m_regs[rn]);
+            if (s) {
+                m_regs.flags.n = result >> 63;
+                m_regs.flags.z = !result;
+            }
+            safe_reg_assign(rn, result);
+            safe_reg_assign(rd, result >> 32);
+            break;
+        }
+        case 0x6: {
+            std::int64_t result = static_cast<std::int64_t>(static_cast<std::int32_t>(m_regs[rm])) 
+                * static_cast<std::int64_t>(static_cast<std::int32_t>(m_regs[rs]));
+            if (s) {
+                m_regs.flags.n = result >> 63;
+                m_regs.flags.z = !result;
+            }
+            safe_reg_assign(rn, result);
+            safe_reg_assign(rd, result >> 32);
+            break;
+        }
+        case 0x7: {
+            std::int64_t result = static_cast<std::int64_t>(static_cast<std::int32_t>(m_regs[rm])) 
+                * static_cast<std::int64_t>(static_cast<std::int32_t>(m_regs[rs]))
+                    + (static_cast<std::int64_t>((static_cast<std::uint64_t>(m_regs[rd]) << 32) ) | m_regs[rn]);
+            if (s) {
+                m_regs.flags.n = result >> 63;
+                m_regs.flags.z = !result;
+            }
+            safe_reg_assign(rn, result);
+            safe_reg_assign(rd, result >> 32);
+            break;
+        }
         }
     }
     return 1;
@@ -784,13 +969,17 @@ void CPU::dump_state() {
             printf("%d: 0x%08X\n", i, m_regs[i]);
         }
     }
-    std::uint8_t flags = (m_regs.flags.n << 3) | (m_regs.flags.z << 2) | (m_regs.flags.c << 1) | m_regs.flags.v; 
-    printf("cpsr: %08X\n", static_cast<std::uint32_t>(flags << 28) | m_regs.mode);
+    printf("cpsr: %08X\n", get_cpsr());
+    printf("psr: %08X\n", get_psr());
 }
 
 std::array<std::array<std::uint16_t, 240>, 160>& CPU::render_frame() {
     int cycles = 0;
     while (cycles < cycles_per_frame) {
+        if (cycles == 1142) {
+            dump_state();
+            std::exit(1);
+        }
         int instr_cycles = execute();
         m_mem.tick_components(instr_cycles);
         cycles += instr_cycles;
