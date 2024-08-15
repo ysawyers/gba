@@ -1,12 +1,6 @@
 #ifndef CPU_HPP
 #define CPU_HPP
 
-#ifdef _DEBUG
-#define CPU_LOG(x) printf(x)
-#else
-#define CPU_LOG(x)
-#endif
-
 #include <string>
 
 #include "memory.hpp"
@@ -79,6 +73,10 @@ class CPU {
             bool reg_imm_shift
         );
 
+        bool condition(std::uint32_t instr);
+        std::uint32_t get_psr();
+        std::uint32_t get_cpsr();
+
         int branch(std::uint32_t instr);
         int branch_ex(std::uint32_t instr);
         int single_transfer(std::uint32_t instr);
@@ -92,17 +90,12 @@ class CPU {
         int mul(std::uint32_t instr);
 
         std::uint32_t thumb_translate_3(std::uint16_t instr);
-        //! assumes that thumb_opcode != 3
         std::uint32_t thumb_translate_5(std::uint16_t instr, std::uint32_t rs, std::uint32_t thumb_opcode);
 
-        // handles r15 edge case when assigned which should force a pipeline flush
-        void safe_reg_assign(std::uint8_t reg, std::uint32_t value);
-
-        bool condition(std::uint32_t instr);
         std::uint32_t ror(std::uint32_t operand, std::size_t shift_amount);
         Registers& get_bank(std::uint8_t mode);
-        std::uint32_t get_psr();
-        std::uint32_t get_cpsr();
+        void change_bank(std::uint8_t new_mode);
+        void safe_reg_assign(std::uint8_t reg, std::uint32_t value);
         void dump_state();
 
         std::uint32_t m_pipeline;

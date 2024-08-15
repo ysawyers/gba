@@ -30,8 +30,40 @@ Registers& CPU::get_bank(std::uint8_t mode) {
     case 0b10011: return m_banked_regs[SVC];
     case 0b10111: return m_banked_regs[ABT];
     case 0b11011: return m_banked_regs[UND];
+    default: std::unreachable();
     }
-    std::unreachable();
+}
+
+void CPU::change_bank(std::uint8_t new_mode) {
+    get_bank(m_banked_regs[SYS].mode) = m_regs;
+    switch (new_mode) {
+    case 0b11011:
+    case 0b10111:
+    case 0b10011:
+    case 0b10010:
+    case 0b10000: 
+    case 0b11111: {
+        auto& bank = get_bank(new_mode);
+        for (int i = 8; i < 15; i++) {
+            m_regs[i] = bank[i];
+        }
+        break;
+    }
+    case 0b10001: {
+        for (int i = 0; i < 6; i++) {
+            if (i == FIQ) continue;
+            for (int j = 8; j < 13; j++) {
+                m_banked_regs[i][j] = m_regs[j];
+            }
+        }
+        for (int i = 8; i < 15; i++) {
+            m_regs[i] = m_banked_regs[FIQ][i];
+        }
+        break;
+    }
+    default: std::unreachable();
+    }
+    m_banked_regs[SYS].mode = new_mode;
 }
 
 std::uint32_t CPU::get_psr() {
@@ -43,6 +75,15 @@ std::uint32_t CPU::get_cpsr() {
     auto& sys = m_banked_regs[SYS];
     std::uint8_t flags = (sys.flags.n << 3) | (sys.flags.z << 2) | (sys.flags.c << 1) | sys.flags.v;
     return static_cast<std::uint32_t>(flags << 28) | sys.mode;
+}
+
+std::uint32_t CPU::ror(std::uint32_t operand, std::size_t shift_amount) {
+    return (operand >> (shift_amount & 31)) | (operand << ((-shift_amount) & 31));
+}
+
+void CPU::safe_reg_assign(std::uint8_t reg, std::uint32_t value) {
+    m_regs[reg] = value;
+    m_pipeline_invalid |= (reg == 0xF);
 }
 
 bool CPU::condition(std::uint32_t instr) {
@@ -62,17 +103,9 @@ bool CPU::condition(std::uint32_t instr) {
     case 0xC: return !m_regs.flags.z && (m_regs.flags.n == m_regs.flags.v);
     case 0xD: return m_regs.flags.z || (m_regs.flags.n ^ m_regs.flags.v);
     case 0xE: return true;
+    default: std::unreachable();
     }
     std::unreachable();
-}
-
-std::uint32_t CPU::ror(std::uint32_t operand, std::size_t shift_amount) {
-    return (operand >> (shift_amount & 31)) | (operand << ((-shift_amount) & 31));
-}
-
-void CPU::safe_reg_assign(std::uint8_t reg, std::uint32_t value) {
-    m_regs[reg] = value;
-    m_pipeline_invalid |= (reg == 0xF);
 }
 
 std::uint32_t CPU::fetch() {
@@ -392,12 +425,12 @@ int CPU::halfword_transfer(std::uint32_t instr) {
     return 1;
 }
 
-// TODO: implement user bank transfer
 int CPU::block_transfer(std::uint32_t instr) {
     if (condition(instr)) {
         printf("block data transfer\n");
         bool p = (instr >> 24) & 1;
         bool u = (instr >> 23) & 1;
+        bool s = (instr >> 22) & 1;
         bool w = (instr >> 21) & 1;
         bool l = (instr >> 20) & 1;
         std::uint8_t rn = (instr >> 16) & 0xF;
@@ -407,17 +440,28 @@ int CPU::block_transfer(std::uint32_t instr) {
         std::uint32_t transfer_base_addr = m_regs[rn];
         std::uint32_t direction = 4 - (!u * 8);
 
+        std::uint8_t prev_mode = 0;
+        if (s) {
+            if (l && ((reg_list >> 15) & 1)) {
+                change_bank(m_regs.mode);
+            } else {
+                prev_mode = m_banked_regs[SYS].mode;
+                change_bank(0x1F);
+            }
+        }
+
         if (transfers == 0) {
             // (ARMv4 edge case): for an empty register list r15 is loaded/stored and base register is
             // written back to +/-40h since the register count is 16 (even though only 1 transfer occurs)
-            reg_list |= (1 << 0xF);
+            if (l) {
+                m_regs[15] = m_mem.read_word(m_regs[rn]);
+                m_pipeline_invalid = true;
+            } else {
+                m_mem.write_word(m_regs[rn], m_regs[15] + (m_thumb_enabled ? 2 : 4));
+            }
             m_regs[rn] += (16 * direction);
-            m_pipeline_invalid = true;
-
-            std::cout << "why not just do the transfer right here?" << std::endl;
-            std::exit(1);
+            return 1;
         } else if (w) {
-            // use of r15 here is unpredictable so safe_reg_assign not needed
             m_regs[rn] += (transfers * direction);
         }
 
@@ -441,6 +485,14 @@ int CPU::block_transfer(std::uint32_t instr) {
                     transfer_base_addr += direction;
                 }
         } else {
+            bool base_transferred = (reg_list >> rn) & 1;
+            if (base_transferred && ((__builtin_ffs(reg_list) - 1) == rn)) {
+                std::uint32_t addr = transfer_base_addr + (((p * direction) * transfers) * !u);
+                m_mem.write_word(addr, transfer_base_addr);
+                reg_list &= ~(1 << rn);
+                transfer_base_addr += (direction * u);
+            }
+
             std::uint32_t pc_offset = m_thumb_enabled ? 2 : 4;
             for (int i = reg_start; i != reg_end; i += step)
                 if ((reg_list >> i) & 1) {
@@ -448,6 +500,10 @@ int CPU::block_transfer(std::uint32_t instr) {
                     m_mem.write_word(addr, m_regs[i] + ((i == 0xF) * pc_offset));
                     transfer_base_addr += direction;
                 }
+        }
+
+        if (prev_mode) {
+            change_bank(prev_mode);
         }
     }
     return 1;
@@ -491,10 +547,10 @@ int CPU::msr(std::uint32_t instr) {
             }
             if (c) {
                 if (m_banked_regs[SYS].mode == 0x1F || m_banked_regs[SYS].mode == 0x10) {
-                    m_banked_regs[SYS] = m_regs;
-                    goto swap_banks;
+                    change_bank(mode);
+                } else {
+                    m_regs.mode = mode;
                 }
-                m_regs.mode = mode;
             }
         } else {
             Registers& sys_bank = m_banked_regs[SYS];
@@ -508,40 +564,8 @@ int CPU::msr(std::uint32_t instr) {
                 }
             }
             if (c) {
-                get_bank(sys_bank.mode) = m_regs;
-                goto swap_banks;
+                change_bank(mode);
             }
-        }
-        return 1;
-
-        swap_banks: {
-            switch (mode) {
-            case 0b11011:
-            case 0b10111:
-            case 0b10011:
-            case 0b10010:
-            case 0b10000: 
-            case 0b11111: {
-                auto& bank = get_bank(mode);
-                for (int i = 8; i < 15; i++) {
-                    m_regs[i] = bank[i];
-                }
-                break;
-            }
-            case 0b10001: {
-                for (int i = 0; i < 6; i++) {
-                    if (i == FIQ) continue;
-                    for (int j = 8; j < 13; j++) {
-                        m_banked_regs[i][j] = m_regs[j];
-                    }
-                }
-                for (int i = 8; i < 15; i++) {
-                    m_regs[i] = m_banked_regs[FIQ][i];
-                }
-                break;
-            }
-            }
-            m_banked_regs[SYS].mode = mode;
         }
     }
     return 1;
@@ -766,35 +790,7 @@ int CPU::alu(std::uint32_t instr) {
         }
 
         if ((rd == 0xF) && set_cc) [[unlikely]] {
-            get_bank(m_banked_regs[SYS].mode) = m_regs;
-            switch (m_regs.mode) {
-            case 0b11011:
-            case 0b10111:
-            case 0b10011:
-            case 0b10010:
-            case 0b10000: 
-            case 0b11111: {
-                auto& bank = get_bank(m_regs.mode);
-                for (int i = 8; i < 15; i++) {
-                    m_regs[i] = bank[i];
-                }
-                break;
-            }
-            case 0b10001: {
-                for (int i = 0; i < 6; i++) {
-                    if (i == FIQ) continue;
-                    for (int j = 8; j < 13; j++) {
-                        m_banked_regs[i][j] = m_regs[j];
-                    }
-                }
-                for (int i = 8; i < 15; i++) {
-                    m_regs[i] = m_banked_regs[FIQ][i];
-                }
-                break;
-            }
-            }
-            m_banked_regs[SYS].flags = m_regs.flags;
-            m_banked_regs[SYS].mode = m_regs.mode;
+            change_bank(m_regs.mode);
         }
     }
     return 1;
@@ -876,6 +872,7 @@ int CPU::mul(std::uint32_t instr) {
             safe_reg_assign(rd, result >> 32);
             break;
         }
+        default: std::unreachable();
         }
     }
     return 1;
@@ -976,7 +973,7 @@ void CPU::dump_state() {
 std::array<std::array<std::uint16_t, 240>, 160>& CPU::render_frame() {
     int cycles = 0;
     while (cycles < cycles_per_frame) {
-        if (cycles == 1142) {
+        if (cycles == 1210) {
             dump_state();
             std::exit(1);
         }
