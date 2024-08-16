@@ -1,5 +1,7 @@
 #include "window.hpp"
 
+#include <chrono>
+#include <format>
 #include <iostream>
 
 #include "cpu.hpp"
@@ -16,7 +18,7 @@ Window::Window() : m_window(nullptr), m_renderer(nullptr) {
         throw std::runtime_error(SDL_GetError());
     }
 
-    m_window = SDL_CreateWindow("GBA", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, 
+    m_window = SDL_CreateWindow("GBA - fps: -", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, 
         screen_width * screen_factor, screen_height * screen_factor, SDL_WINDOW_SHOWN);
     if(m_window == nullptr) {
         throw std::runtime_error(SDL_GetError());
@@ -53,9 +55,12 @@ void Window::render_frame(std::uint16_t* frame_buffer) {
 
 void Window::emulate(const std::string&& rom_filepath) {
     CPU cpu(std::move(rom_filepath));
-
     SDL_Event event;
     bool event_loop = true;
+
+    auto time_start = std::chrono::steady_clock::now();
+    std::uint16_t frames_rendered = 0;
+
     while(event_loop)
     {
         uint16_t key_input = 0xFFFF;
@@ -90,9 +95,6 @@ void Window::emulate(const std::string&& rom_filepath) {
                     break;
                 }
                 break;
-
-
-                break;
             }
             case SDL_QUIT:
                 event_loop = false;
@@ -102,5 +104,13 @@ void Window::emulate(const std::string&& rom_filepath) {
 
         auto frame_buffer = reinterpret_cast<std::uint16_t*>(cpu.render_frame().data());
         render_frame(frame_buffer);
+        frames_rendered += 1;
+
+        std::chrono::duration<double> duration = std::chrono::steady_clock::now() - time_start;
+        if (duration.count() > 1) {
+            time_start = std::chrono::steady_clock::now();
+            SDL_SetWindowTitle(m_window, std::format("GBA - fps: {}", frames_rendered).c_str());
+            frames_rendered = 0;
+        }
     }
 }

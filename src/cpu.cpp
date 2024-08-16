@@ -7,7 +7,9 @@ constexpr int halfword_access = 2;
 constexpr int word_access = 4;
 constexpr int cycles_per_frame = 280896;
 
-CPU::CPU(const std::string&& rom_filepath) : m_pipeline(0), m_pipeline_invalid(true), m_thumb_enabled(false) {
+CPU::CPU(const std::string&& rom_filepath) 
+    : m_pipeline(0), m_pipeline_invalid(true), m_thumb_enabled(false) 
+{
     m_mem.load_bios();
     m_mem.load_rom(std::move(rom_filepath));
     m_banked_regs[SYS].mode = 0x1F;
@@ -105,7 +107,12 @@ bool CPU::condition(std::uint32_t instr) {
     case 0xE: return true;
     default: std::unreachable();
     }
-    std::unreachable();
+}
+
+std::uint32_t CPU::fetch_arm() {
+    std::uint32_t instr = m_mem.read_word(m_regs[15]);
+    m_regs[15] += word_access;
+    return instr;
 }
 
 std::uint32_t CPU::fetch() {
@@ -122,8 +129,6 @@ std::uint32_t CPU::fetch() {
 
 // TODO: convert to LUT
 CPU::InstrFormat CPU::decode(std::uint32_t instr) {
-    m_pipeline = fetch();
-
     if (m_thumb_enabled) {
         switch ((instr >> 13) & 0x7) {
         case 0x0:
@@ -903,53 +908,67 @@ std::uint32_t CPU::thumb_translate_5(std::uint16_t instr, std::uint32_t rs, std:
 }
 
 int CPU::execute() {
-    std::uint32_t instr = m_pipeline_invalid ? fetch() : m_pipeline;
-    m_pipeline_invalid = false;
-
-    switch (decode(instr)) {
-    case InstrFormat::THUMB_1: {
-        std::cout << "thumb 1" << std::endl;
+    if (m_thumb_enabled) {
+        // case InstrFormat::THUMB_1: {
+        //     std::cout << "thumb 1" << std::endl;
+        //     std::exit(1);
+        // }
+        // case InstrFormat::THUMB_6: {
+        //     std::cout << "thumb 2" << std::endl;
+        //     std::exit(1);
+        // }
+        // case InstrFormat::THUMB_3: return alu(thumb_translate_3(instr));
+        // case InstrFormat::THUMB_5: {
+        //     std::uint32_t thumb_opcode = (instr >> 8) & 0x3;
+        //     std::uint32_t rs = (((instr >> 6) & 1) << 3) | ((instr >> 3) & 0x7);
+        //     if (thumb_opcode == 0x3) {
+        //         std::uint32_t translation = 0b11100001001011111111111100010000;
+        //         translation |= rs;
+        //         return branch_ex(translation);
+        //     }
+        //     return alu(thumb_translate_5(instr, rs, thumb_opcode));
+        // }
+        // case InstrFormat::THUMB_12: {
+        //     std::uint8_t rd = (instr >> 8) & 0x7;
+        //     std::uint32_t nn = (instr & 0xFF) << 2;
+        //     if ((instr >> 11) & 1) {
+        //         m_regs[rd] = m_regs[13] + nn;
+        //     } else {
+        //         m_regs[rd] = (m_regs[15] & ~2) + nn;
+        //     }
+        //     return 1;
+        // }
+        printf("thumb unhandled\n");
         std::exit(1);
-    }
-    case InstrFormat::THUMB_6: {
-        std::cout << "thumb 2" << std::endl;
-        std::exit(1);
-    }
-    case InstrFormat::B: return branch(instr);
-    case InstrFormat::BX: return branch_ex(instr);
-    case InstrFormat::SINGLE_TRANSFER: return single_transfer(instr);
-    case InstrFormat::HALFWORD_TRANSFER: return halfword_transfer(instr);
-    case InstrFormat::BLOCK_TRANSFER: return block_transfer(instr);
-    case InstrFormat::MRS: return mrs(instr);
-    case InstrFormat::MSR: return msr(instr);
-    case InstrFormat::SWI: return swi(instr);
-    case InstrFormat::SWP: return swp(instr);
-    case InstrFormat::ALU: return alu(instr);
-    case InstrFormat::MUL: return mul(instr);
-    case InstrFormat::NOP: return 1;
+    } else {
+        std::uint32_t instr = m_pipeline_invalid ? fetch_arm() : m_pipeline;
+        m_pipeline_invalid = false;
+        m_pipeline = fetch_arm();
 
-    case InstrFormat::THUMB_3: return alu(thumb_translate_3(instr));
-    case InstrFormat::THUMB_5: {
-        std::uint32_t thumb_opcode = (instr >> 8) & 0x3;
-        std::uint32_t rs = (((instr >> 6) & 1) << 3) | ((instr >> 3) & 0x7);
-        if (thumb_opcode == 0x3) {
-            std::uint32_t translation = 0b11100001001011111111111100010000;
-            translation |= rs;
-            return branch_ex(translation);
+        if (condition(instr)) [[likely]] {
+            std::uint16_t opcode = (((instr >> 20) & 0xFF) << 4) | ((instr >> 4) & 0xF);
+            switch (m_arm_lut[opcode]) {
+            case InstrFormat::B: return branch(instr);
+            case InstrFormat::BX: return branch_ex(instr);
+            case InstrFormat::SINGLE_TRANSFER: return single_transfer(instr);
+            case InstrFormat::HALFWORD_TRANSFER: return halfword_transfer(instr);
+            case InstrFormat::BLOCK_TRANSFER: return block_transfer(instr);
+            case InstrFormat::MRS: return mrs(instr);
+            case InstrFormat::MSR: return msr(instr);
+            case InstrFormat::SWI: return swi(instr);
+            case InstrFormat::SWP: return swp(instr);
+            case InstrFormat::ALU: return alu(instr);
+            case InstrFormat::MUL: return mul(instr);
+            case InstrFormat::NOP: {
+                printf("found: %08X\n", opcode);
+                std::exit(1);
+                return 1;
+            }
+            default: std::unreachable();
+            }
         }
-        return alu(thumb_translate_5(instr, rs, thumb_opcode));
     }
-    case InstrFormat::THUMB_12: {
-        std::uint8_t rd = (instr >> 8) & 0x7;
-        std::uint32_t nn = (instr & 0xFF) << 2;
-        if ((instr >> 11) & 1) {
-            m_regs[rd] = m_regs[13] + nn;
-        } else {
-            m_regs[rd] = (m_regs[15] & ~2) + nn;
-        }
-        return 1;
-    }
-    }
+    return 1;
 }
 
 void CPU::dump_state() {

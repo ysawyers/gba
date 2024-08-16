@@ -2,6 +2,8 @@
 #define CPU_HPP
 
 #include <string>
+#include <unordered_map>
+#include <map>
 
 #include "memory.hpp"
 
@@ -50,8 +52,8 @@ class CPU {
 
         std::array<std::array<std::uint16_t, 240>, 160>& render_frame();
 
-        enum class InstrFormat {
-            NOP, B, BX, SWP, MRS, SWI, MUL, MSR, ALU, 
+        enum class InstrFormat : std::uint8_t {
+            NOP = 0, B, BX, SWP, MRS, SWI, MUL, MSR, ALU, 
             SINGLE_TRANSFER, HALFWORD_TRANSFER, BLOCK_TRANSFER,
             THUMB_1, THUMB_3, THUMB_5, THUMB_6, THUMB_12,  
         };
@@ -61,6 +63,9 @@ class CPU {
         };
 
     private:
+        std::uint32_t fetch_arm();
+        std::uint16_t fetch_thumb();
+
         std::uint32_t fetch();
         InstrFormat decode(std::uint32_t instr);
         int execute();
@@ -97,6 +102,115 @@ class CPU {
         void change_bank(std::uint8_t new_mode);
         void safe_reg_assign(std::uint8_t reg, std::uint32_t value);
         void dump_state();
+
+        std::array<InstrFormat, 4096> m_arm_lut = ([]() constexpr -> auto {
+            std::array<InstrFormat, 4096> lut;
+
+            lut[0b000100100001] = InstrFormat::BX;
+            lut[0b000100001001] = InstrFormat::SWP;
+            lut[0b000101001001] = InstrFormat::SWP;
+
+            // MSR, MRS
+            {
+                lut[0b000100000000] = InstrFormat::MRS;
+                lut[0b000101000000] = InstrFormat::MRS;
+                std::uint16_t postfix = 0b00110010;
+                for (std::uint16_t mask = 0; mask <= 0b1111; mask++) {
+                    lut[(postfix << 4) | mask] = InstrFormat::MSR;
+                }
+                postfix = 0b00110110;
+                for (std::uint16_t mask = 0; mask <= 0b1111; mask++) {
+                    lut[(postfix << 4) | mask] = InstrFormat::MSR;
+                }
+            }
+
+            // MUL, MLA, MULL, MLAL
+            {
+                std::uint16_t prefix = 0b1001;
+                for (std::uint16_t mask = 0; mask <= 0b11; mask++) {
+                    lut[(mask << 4) | prefix] = InstrFormat::MUL;
+                }
+                for (std::uint16_t mask = 0b00001000; mask <= 0b00001111; mask++) {
+                    lut[(mask << 4) | prefix] = InstrFormat::MUL;
+                }
+            }
+
+            // LDRH, LDRSB, LDRSH, STRH
+            {
+                std::uint16_t prefix = 0b1011;
+                for (std::uint16_t mask = 0; mask <= 0b11111; mask++) {
+                    lut[(mask << 4) | prefix] = InstrFormat::HALFWORD_TRANSFER;
+                }
+                prefix = 0b11101;
+                for (std::uint16_t mask = 0; mask <= 0b1111; mask++) {
+                    lut[(mask << 5) | prefix] = InstrFormat::HALFWORD_TRANSFER;
+                }
+                prefix = 0b11111;
+                for (std::uint16_t mask = 0; mask <= 0b1111; mask++) {
+                    lut[(mask << 5) | prefix] = InstrFormat::HALFWORD_TRANSFER;
+                }
+            }
+
+            // B, BL
+            {
+                std::uint16_t postfix = 0b101 << 9;
+                for (std::uint16_t mask = 0; mask <= 0b111111111; mask++) {
+                    lut[postfix | mask] = InstrFormat::B;
+                }
+            }
+
+            // Data Processing (ALU)
+            {
+                std::uint16_t postfix = 0b001 << 9;
+                for (std::uint16_t mask = 0; mask <= 0b111111111; mask++) {
+                    lut[postfix | mask] = InstrFormat::ALU;
+                }
+                for (std::uint16_t mask = 0; mask <= 0b11111111; mask++) {
+                    lut[mask << 1] = InstrFormat::ALU;
+                }
+                for (std::uint16_t prefix = 0b0001; prefix <= 0b0111; prefix++) {
+                    for (std::uint16_t mask = 0; mask <= 0b11111; mask++) {
+                        lut[(mask << 4) | prefix] = InstrFormat::ALU;
+                    }
+                }
+            }
+
+            // LDR, STR
+            {
+                std::uint16_t postfix = 0b010 << 9;
+                for (std::uint16_t mask = 0; mask <= 0b111111111; mask++) {
+                    lut[postfix | mask] = InstrFormat::SINGLE_TRANSFER;
+                }
+                postfix = 0b011 << 9;
+                for (std::uint16_t mask = 0; mask <= 0b11111111; mask++) {
+                    lut[postfix | (mask << 1)] = InstrFormat::SINGLE_TRANSFER;
+                }
+            }
+
+            // LDM, STM
+            {
+                std::uint16_t postfix = 0b100 << 9;
+                for (std::uint16_t mask = 0; mask <= 0b111111111; mask++) {
+                    lut[postfix | mask] = InstrFormat::BLOCK_TRANSFER;
+                }
+            }
+
+            // SWI
+            {
+                std::uint16_t postfix = 0b1111 << 8;
+                for (std::uint16_t mask = 0; mask <= 0b11111111; mask++) {
+                    lut[postfix | mask] = InstrFormat::SWI;
+                }
+            }
+
+            return lut;
+        })();
+
+        std::array<InstrFormat, 1024> thumb_lut = ([]() constexpr -> auto {
+            std::array<InstrFormat, 1024> lut;
+            // TODO
+            return lut;
+        })();
 
         std::uint32_t m_pipeline;
         bool m_pipeline_invalid;
