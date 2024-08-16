@@ -161,6 +161,7 @@ void Memory::write_word(std::uint32_t addr, std::uint32_t value) {
 
     mapped_registers:
         std::cout << "write word to mapped registers\n";
+        printf("%08X: %08X\n", addr, value);
         std::exit(1);
 
         // switch (addr) {

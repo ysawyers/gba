@@ -281,7 +281,6 @@ bool CPU::barrel_shifter(
 
 int CPU::branch(std::uint32_t instr) {
     if (condition(instr)) {
-        printf("branch\n");
         bool bl = (instr >> 24) & 1;
         std::int32_t nn = (static_cast<std::int32_t>((instr & 0xFFFFFF) << 8) >> 8) * 4;
         if (bl) m_regs[14] = m_regs[15] - 4;
@@ -293,7 +292,6 @@ int CPU::branch(std::uint32_t instr) {
 
 int CPU::branch_ex(std::uint32_t instr) {
     if (condition(instr)) {
-        printf("branch ex\n");
         std::uint8_t rn = instr & 0xF;
         if (((instr >> 4) & 0xF) == 0x1) {
             if (m_regs[rn] & 1) {
@@ -314,7 +312,6 @@ int CPU::branch_ex(std::uint32_t instr) {
 
 int CPU::single_transfer(std::uint32_t instr) {
     if (condition(instr)) {
-        printf("single data transfer\n");
         bool i = (instr >> 25) & 1;
         bool p = (instr >> 24) & 1;
         bool u = (instr >> 23) & 1;
@@ -364,7 +361,6 @@ int CPU::single_transfer(std::uint32_t instr) {
 
 int CPU::halfword_transfer(std::uint32_t instr) {
     if (condition(instr)) {
-        printf("halfword data transfer\n");
         bool p = (instr >> 24) & 1;
         bool u = (instr >> 23) & 1;
         bool i = (instr >> 22) & 1;
@@ -427,7 +423,6 @@ int CPU::halfword_transfer(std::uint32_t instr) {
 
 int CPU::block_transfer(std::uint32_t instr) {
     if (condition(instr)) {
-        printf("block data transfer\n");
         bool p = (instr >> 24) & 1;
         bool u = (instr >> 23) & 1;
         bool s = (instr >> 22) & 1;
@@ -450,14 +445,15 @@ int CPU::block_transfer(std::uint32_t instr) {
             }
         }
 
+        // (ARMv4 edge case): for an empty register list r15 is loaded/stored and base register is
+        // written back to +/-40h since the register count is 16 (even though only 1 transfer occurs)
         if (transfers == 0) {
-            // (ARMv4 edge case): for an empty register list r15 is loaded/stored and base register is
-            // written back to +/-40h since the register count is 16 (even though only 1 transfer occurs)
+            std::uint32_t addr = u ? transfer_base_addr + (p * 4) : ((transfer_base_addr + (16 * direction)) + (!p * 4));
             if (l) {
-                m_regs[15] = m_mem.read_word(m_regs[rn]);
+                m_regs[15] = m_mem.read_word(addr);
                 m_pipeline_invalid = true;
             } else {
-                m_mem.write_word(m_regs[rn], m_regs[15] + (m_thumb_enabled ? 2 : 4));
+                m_mem.write_word(addr, m_regs[15] + (m_thumb_enabled ? 2 : 4));
             }
             m_regs[rn] += (16 * direction);
             return 1;
@@ -487,7 +483,7 @@ int CPU::block_transfer(std::uint32_t instr) {
         } else {
             bool base_transferred = (reg_list >> rn) & 1;
             if (base_transferred && ((__builtin_ffs(reg_list) - 1) == rn)) {
-                std::uint32_t addr = transfer_base_addr + (((p * direction) * transfers) * !u);
+                std::uint32_t addr = transfer_base_addr + (u * -4) + (direction * (!p + (p * transfers)));
                 m_mem.write_word(addr, transfer_base_addr);
                 reg_list &= ~(1 << rn);
                 transfer_base_addr += (direction * u);
@@ -511,7 +507,6 @@ int CPU::block_transfer(std::uint32_t instr) {
 
 int CPU::mrs(std::uint32_t instr) {
     if (condition(instr)) {
-        printf("mrs\n");
         bool psr = (instr >> 22) & 1;
         uint8_t rd = (instr >> 12) & 0xF;
         if (psr) {
@@ -525,7 +520,6 @@ int CPU::mrs(std::uint32_t instr) {
 
 int CPU::msr(std::uint32_t instr) {
     if (condition(instr)) {
-        printf("msr\n");
         bool i = (instr >> 25) & 1;
         bool psr = (instr >> 22) & 1;
         bool f = (instr >> 19) & 1;
@@ -601,7 +595,6 @@ int CPU::swp(std::uint32_t instr) {
 
 int CPU::alu(std::uint32_t instr) {
     if (condition(instr)) {
-        printf("alu\n");
         bool imm = (instr >> 25) & 1;
         bool set_cc = (instr >> 20) & 1;
         auto rn = (instr >> 16) & 0xF;
@@ -798,7 +791,6 @@ int CPU::alu(std::uint32_t instr) {
 
 int CPU::mul(std::uint32_t instr) {
     if (condition(instr)) {
-        printf("mul\n");
         bool s = (instr >> 20) & 1;
         std::uint8_t rd = (instr >> 16) & 0xF;
         std::uint8_t rn = (instr >> 12) & 0xF;
@@ -973,10 +965,6 @@ void CPU::dump_state() {
 std::array<std::array<std::uint16_t, 240>, 160>& CPU::render_frame() {
     int cycles = 0;
     while (cycles < cycles_per_frame) {
-        if (cycles == 1210) {
-            dump_state();
-            std::exit(1);
-        }
         int instr_cycles = execute();
         m_mem.tick_components(instr_cycles);
         cycles += instr_cycles;
