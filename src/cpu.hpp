@@ -151,6 +151,8 @@ class CPU {
             {
                 lut[0b000100000000] = InstrFormat::MRS;
                 lut[0b000101000000] = InstrFormat::MRS;
+                lut[0b000100100000] = InstrFormat::MSR;
+                lut[0b000101100000] = InstrFormat::MSR;
                 std::uint16_t postfix = 0b00110010 << 4;
                 for (std::uint16_t mask = 0; mask <= 0b1111; mask++) {
                     lut[postfix | mask] = InstrFormat::MSR;

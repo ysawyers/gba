@@ -160,7 +160,6 @@ bool CPU::barrel_shifter(
 }
 
 int CPU::branch(std::uint32_t instr) {
-    printf("branch\n");
     bool bl = (instr >> 24) & 1;
     std::int32_t nn = (static_cast<std::int32_t>((instr & 0xFFFFFF) << 8) >> 8) * 4;
     if (bl) m_regs[14] = m_regs[15] - 4;
@@ -170,7 +169,6 @@ int CPU::branch(std::uint32_t instr) {
 }
 
 int CPU::branch_ex(std::uint32_t instr) {
-    printf("branch ex\n");
     std::uint8_t rn = instr & 0xF;
     if (((instr >> 4) & 0xF) == 0x1) {
         if (m_regs[rn] & 1) {
@@ -189,7 +187,6 @@ int CPU::branch_ex(std::uint32_t instr) {
 }
 
 int CPU::single_transfer(std::uint32_t instr) {
-    printf("single data transfer\n");
     bool i = (instr >> 25) & 1;
     bool p = (instr >> 24) & 1;
     bool u = (instr >> 23) & 1;
@@ -237,7 +234,6 @@ int CPU::single_transfer(std::uint32_t instr) {
 }
 
 int CPU::halfword_transfer(std::uint32_t instr) {
-    printf("halfword data transfer\n");
     bool p = (instr >> 24) & 1;
     bool u = (instr >> 23) & 1;
     bool i = (instr >> 22) & 1;
@@ -298,7 +294,6 @@ int CPU::halfword_transfer(std::uint32_t instr) {
 }
 
 int CPU::block_transfer(std::uint32_t instr) {
-    printf("block data transfer\n");
     bool p = (instr >> 24) & 1;
     bool u = (instr >> 23) & 1;
     bool s = (instr >> 22) & 1;
@@ -381,7 +376,6 @@ int CPU::block_transfer(std::uint32_t instr) {
 }
 
 int CPU::mrs(std::uint32_t instr) {
-    printf("mrs\n");
     bool psr = (instr >> 22) & 1;
     uint8_t rd = (instr >> 12) & 0xF;
     if (psr) {
@@ -393,7 +387,6 @@ int CPU::mrs(std::uint32_t instr) {
 }
 
 int CPU::msr(std::uint32_t instr) {
-    printf("msr\n");
     bool i = (instr >> 25) & 1;
     bool psr = (instr >> 22) & 1;
     bool f = (instr >> 19) & 1;
@@ -452,7 +445,6 @@ int CPU::swi(std::uint32_t instr) {
 }
 
 int CPU::swp(std::uint32_t instr) {
-    printf("swp\n");
     bool b = (instr >> 22) & 1;
     std::uint8_t rn = (instr >> 16) & 0xF;
     std::uint8_t rd = (instr >> 12) & 0xF;
@@ -471,7 +463,6 @@ int CPU::swp(std::uint32_t instr) {
 }
 
 int CPU::alu(std::uint32_t instr) {
-    printf("alu\n");
     bool imm = (instr >> 25) & 1;
     bool set_cc = (instr >> 20) & 1;
     auto rn = (instr >> 16) & 0xF;
@@ -666,7 +657,6 @@ int CPU::alu(std::uint32_t instr) {
 }
 
 int CPU::mul(std::uint32_t instr) {
-    printf("mul\n");
     bool s = (instr >> 20) & 1;
     std::uint8_t rd = (instr >> 16) & 0xF;
     std::uint8_t rn = (instr >> 12) & 0xF;
@@ -921,6 +911,10 @@ void CPU::dump_state() {
 std::array<std::array<std::uint16_t, 240>, 160>& CPU::render_frame() {
     int cycles = 0;
     while (cycles < CYCLES_PER_FRAME) {
+        // if (cycles == 569) {
+        //     dump_state();
+        //     std::exit(1);
+        // }
         int instr_cycles = execute();
         m_mem.tick_components(instr_cycles);
         cycles += instr_cycles;
