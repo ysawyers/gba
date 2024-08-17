@@ -50,7 +50,7 @@ class CPU {
     public:
         CPU(const std::string&& rom_filepath);
 
-        std::array<std::array<std::uint16_t, 240>, 160>& render_frame();
+        std::array<std::array<std::uint16_t, 240>, 160>& render_frame(std::uint16_t key_input);
 
         enum class InstrFormat : std::uint8_t {
             NOP = 0, B, BX, SWP, MRS, SWI, MUL, MSR, ALU, 
@@ -58,7 +58,7 @@ class CPU {
             THUMB_1, THUMB_2, THUMB_3, THUMB_4, THUMB_5, THUMB_6,
             THUMB_7, THUMB_8, THUMB_9, THUMB_10, THUMB_11, THUMB_12,
             THUMB_13, THUMB_14, THUMB_15, THUMB_16, THUMB_17, THUMB_18,
-            THUMB_19
+            THUMB_19_PREFIX, THUMB_19_SUFFIX
         };
 
         enum class ShiftType {
@@ -94,8 +94,15 @@ class CPU {
         int alu(std::uint32_t instr);
         int mul(std::uint32_t instr);
 
+        std::uint32_t thumb_translate_1(std::uint16_t instr);
+        std::uint32_t thumb_translate_2(std::uint16_t instr);
         std::uint32_t thumb_translate_3(std::uint16_t instr);
         std::uint32_t thumb_translate_5(std::uint16_t instr, std::uint32_t rs, std::uint32_t thumb_opcode);
+        std::uint32_t thumb_translate_9(std::uint16_t instr);
+        std::uint32_t thumb_translate_10(std::uint16_t instr);
+        std::uint32_t thumb_translate_14(std::uint16_t instr);
+        std::uint32_t thumb_translate_15(std::uint16_t instr);
+        std::uint32_t thumb_translate_16(std::uint16_t instr);
 
         std::uint32_t ror(std::uint32_t operand, std::size_t shift_amount);
         Registers& get_bank(std::uint8_t mode);
@@ -193,147 +200,147 @@ class CPU {
         std::array<InstrFormat, 1024> m_thumb_lut = ([]() constexpr -> auto {
             std::array<InstrFormat, 1024> lut;
             {
-                std::uint16_t postfix = 0b11110 << 5;
+                std::uint16_t suffix = 0b11110 << 5;
                 for (std::uint16_t mask = 0; mask <= 0b11111; mask++) {
-                    lut[postfix | mask] = InstrFormat::THUMB_19;
+                    lut[suffix | mask] = InstrFormat::THUMB_19_PREFIX;
                 }
-                postfix = 0b11111 << 5;
+                suffix = 0b11111 << 5;
                 for (std::uint16_t mask = 0; mask <= 0b11111; mask++) {
-                    lut[postfix | mask] = InstrFormat::THUMB_19;
-                }
-            }
-            {
-                std::uint16_t postfix = 0b11100 << 5;
-                for (std::uint16_t mask = 0; mask <= 0b11111; mask++) {
-                    lut[postfix | mask] = InstrFormat::THUMB_18;
+                    lut[suffix | mask] = InstrFormat::THUMB_19_SUFFIX;
                 }
             }
             {
-                std::uint16_t postfix = 0b1101 << 6;
+                std::uint16_t suffix = 0b11100 << 5;
+                for (std::uint16_t mask = 0; mask <= 0b11111; mask++) {
+                    lut[suffix | mask] = InstrFormat::THUMB_18;
+                }
+            }
+            {
+                std::uint16_t suffix = 0b1101 << 6;
                 for (std::uint16_t mask = 0; mask <= 0b111111; mask++) {
-                    lut[postfix | mask] = InstrFormat::THUMB_16;
+                    lut[suffix | mask] = InstrFormat::THUMB_16;
                 }
             }
             {
-                std::uint16_t postfix = 0b11011111 << 2;
+                std::uint16_t suffix = 0b11011111 << 2;
                 for (std::uint16_t mask = 0; mask <= 0b11; mask++) {
-                    lut[postfix | mask] = InstrFormat::THUMB_17;
+                    lut[suffix | mask] = InstrFormat::THUMB_17;
                 }
             }
             {
-                std::uint16_t postfix = 0b1100 << 6;
+                std::uint16_t suffix = 0b1100 << 6;
                 for (std::uint16_t mask = 0; mask <= 0b111111; mask++) {
-                    lut[postfix | mask] = InstrFormat::THUMB_15;
+                    lut[suffix | mask] = InstrFormat::THUMB_15;
                 }
             }
             {
-                std::uint16_t postfix = 0b1011010 << 3;
+                std::uint16_t suffix = 0b1011010 << 3;
                 for (std::uint16_t mask = 0; mask <= 0b111; mask++) {
-                    lut[postfix | mask] = InstrFormat::THUMB_14;
+                    lut[suffix | mask] = InstrFormat::THUMB_14;
                 }
-                postfix = 0b1011110 << 3;
+                suffix = 0b1011110 << 3;
                 for (std::uint16_t mask = 0; mask <= 0b111; mask++) {
-                    lut[postfix | mask] = InstrFormat::THUMB_14;
+                    lut[suffix | mask] = InstrFormat::THUMB_14;
                 }
             }
             {
-                std::uint16_t postfix = 0b10110000 << 2;
+                std::uint16_t suffix = 0b10110000 << 2;
                 for (std::uint16_t mask = 0; mask <= 0b11; mask++) {
-                    lut[postfix | mask] = InstrFormat::THUMB_13;
+                    lut[suffix | mask] = InstrFormat::THUMB_13;
                 }
             }
             {
-                std::uint16_t postfix = 0b1010 << 6;
+                std::uint16_t suffix = 0b1010 << 6;
                 for (std::uint16_t mask = 0; mask <= 0b111111; mask++) {
-                    lut[postfix | mask] = InstrFormat::THUMB_12;
+                    lut[suffix | mask] = InstrFormat::THUMB_12;
                 }
             }
             {
-                std::uint16_t postfix = 0b1001 << 6;
+                std::uint16_t suffix = 0b1001 << 6;
                 for (std::uint16_t mask = 0; mask <= 0b111111; mask++) {
-                    lut[postfix | mask] = InstrFormat::THUMB_11;
+                    lut[suffix | mask] = InstrFormat::THUMB_11;
                 }
             }
             {
-                std::uint16_t postfix = 0b1000 << 6;
+                std::uint16_t suffix = 0b1000 << 6;
                 for (std::uint16_t mask = 0; mask <= 0b111111; mask++) {
-                    lut[postfix | mask] = InstrFormat::THUMB_10;
+                    lut[suffix | mask] = InstrFormat::THUMB_10;
                 }
             }
             {
-                std::uint16_t postfix = 0b0110 << 6;
+                std::uint16_t suffix = 0b0110 << 6;
                 for (std::uint16_t mask = 0; mask <= 0b111111; mask++) {
-                    lut[postfix | mask] = InstrFormat::THUMB_9;
+                    lut[suffix | mask] = InstrFormat::THUMB_9;
                 }
-                postfix = 0b0111 << 6;
+                suffix = 0b0111 << 6;
                 for (std::uint16_t mask = 0; mask <= 0b111111; mask++) {
-                    lut[postfix | mask] = InstrFormat::THUMB_9;
+                    lut[suffix | mask] = InstrFormat::THUMB_9;
                 }
             }
             {
-                std::uint16_t postfix = 0b0101000 << 3;
+                std::uint16_t suffix = 0b0101000 << 3;
                 for (std::uint16_t mask = 0; mask <= 0b111; mask++) {
-                    lut[postfix | mask] = InstrFormat::THUMB_7;
+                    lut[suffix | mask] = InstrFormat::THUMB_7;
                 }
-                postfix = 0b0101100 << 3;
+                suffix = 0b0101100 << 3;
                 for (std::uint16_t mask = 0; mask <= 0b111; mask++) {
-                    lut[postfix | mask] = InstrFormat::THUMB_7;
+                    lut[suffix | mask] = InstrFormat::THUMB_7;
                 }
-                postfix = 0b0101010 << 3;
+                suffix = 0b0101010 << 3;
                 for (std::uint16_t mask = 0; mask <= 0b111; mask++) {
-                    lut[postfix | mask] = InstrFormat::THUMB_7;
+                    lut[suffix | mask] = InstrFormat::THUMB_7;
                 }
-                postfix = 0b0101110 << 3;
+                suffix = 0b0101110 << 3;
                 for (std::uint16_t mask = 0; mask <= 0b111; mask++) {
-                    lut[postfix | mask] = InstrFormat::THUMB_7;
-                }
-            }
-            {
-                std::uint16_t postfix = 0b0101011 << 3;
-                for (std::uint16_t mask = 0; mask <= 0b111; mask++) {
-                    lut[postfix | mask] = InstrFormat::THUMB_8;
-                }
-                postfix = 0b0101111 << 3;
-                for (std::uint16_t mask = 0; mask <= 0b111; mask++) {
-                    lut[postfix | mask] = InstrFormat::THUMB_8;
-                }
-                postfix = 0b0101001 << 3;
-                for (std::uint16_t mask = 0; mask <= 0b111; mask++) {
-                    lut[postfix | mask] = InstrFormat::THUMB_8;
-                }
-                postfix = 0b0101101 << 3;
-                for (std::uint16_t mask = 0; mask <= 0b111; mask++) {
-                    lut[postfix | mask] = InstrFormat::THUMB_8;
+                    lut[suffix | mask] = InstrFormat::THUMB_7;
                 }
             }
             {
-                std::uint16_t postfix = 0b01001 << 5;
+                std::uint16_t suffix = 0b0101011 << 3;
+                for (std::uint16_t mask = 0; mask <= 0b111; mask++) {
+                    lut[suffix | mask] = InstrFormat::THUMB_8;
+                }
+                suffix = 0b0101111 << 3;
+                for (std::uint16_t mask = 0; mask <= 0b111; mask++) {
+                    lut[suffix | mask] = InstrFormat::THUMB_8;
+                }
+                suffix = 0b0101001 << 3;
+                for (std::uint16_t mask = 0; mask <= 0b111; mask++) {
+                    lut[suffix | mask] = InstrFormat::THUMB_8;
+                }
+                suffix = 0b0101101 << 3;
+                for (std::uint16_t mask = 0; mask <= 0b111; mask++) {
+                    lut[suffix | mask] = InstrFormat::THUMB_8;
+                }
+            }
+            {
+                std::uint16_t suffix = 0b01001 << 5;
                 for (std::uint16_t mask = 0; mask <= 0b11111; mask++) {
-                    lut[postfix | mask] = InstrFormat::THUMB_6;
+                    lut[suffix | mask] = InstrFormat::THUMB_6;
                 }
             }
             {
-                std::uint16_t postfix = 0b010001 << 4;
+                std::uint16_t suffix = 0b010001 << 4;
                 for (std::uint16_t mask = 0; mask <= 0b1111; mask++) {
-                    lut[postfix | mask] = InstrFormat::THUMB_5;
+                    lut[suffix | mask] = InstrFormat::THUMB_5;
                 }
             }
             {
-                std::uint16_t postfix = 0b01000111 << 2;
+                std::uint16_t suffix = 0b01000111 << 2;
                 for (std::uint16_t mask = 0; mask <= 0b11; mask++) {
-                    lut[postfix | mask] = InstrFormat::THUMB_5;
+                    lut[suffix | mask] = InstrFormat::THUMB_5;
                 }
             }
             {
-                std::uint16_t postfix = 0b010000 << 4;
+                std::uint16_t suffix = 0b010000 << 4;
                 for (std::uint16_t mask = 0; mask <= 0b1111; mask++) {
-                    lut[postfix | mask] = InstrFormat::THUMB_4;
+                    lut[suffix | mask] = InstrFormat::THUMB_4;
                 }
             }
             {
-                std::uint16_t postfix = 0b001 << 7;
+                std::uint16_t suffix = 0b001 << 7;
                 for (std::uint16_t mask = 0; mask <= 0b1111111; mask++) {
-                    lut[postfix | mask] = InstrFormat::THUMB_3;
+                    lut[suffix | mask] = InstrFormat::THUMB_3;
                 }
             }
             {
@@ -342,9 +349,9 @@ class CPU {
                 }
             }
             {
-                std::uint16_t postfix = 0b00011 << 5;
+                std::uint16_t suffix = 0b00011 << 5;
                 for (std::uint16_t mask = 0; mask <= 0b11111; mask++) {
-                    lut[postfix | mask] = InstrFormat::THUMB_2;
+                    lut[suffix | mask] = InstrFormat::THUMB_2;
                 }
             }
             return lut;

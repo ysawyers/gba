@@ -42,7 +42,7 @@ std::uint32_t Memory::read_word(std::uint32_t addr) {
         switch (addr) {
         default:
             if (addr >= 0x04000000 && addr <= 0x04000054) {
-                return *reinterpret_cast<std::uint32_t*>(m_ppu.m_mmio + (addr - 0x04000000));
+                return *reinterpret_cast<std::uint32_t*>(m_ppu.m_mmio.data() + (addr - 0x04000000));
             }
             printf("[read] unmapped hardware register: %08X\n", addr);
             exit(1);
@@ -80,9 +80,11 @@ std::uint16_t Memory::read_halfword(std::uint32_t addr) {
         case 0x04000006: return m_ppu.m_vcount;
         default:
             if (addr >= 0x04000000 && addr <= 0x04000054) {
-                return *reinterpret_cast<std::uint16_t*>(m_ppu.m_mmio + (addr - 0x04000000));
+                return *reinterpret_cast<std::uint16_t*>(m_ppu.m_mmio.data() + (addr - 0x04000000));
+            } else if (addr == 0x04000130) {
+                return m_key_input;
             }
-            printf("[read] unmapped hardware register: %08X\n", addr);
+            printf("[read] unmapped hardware registers: %08X\n", addr);
             exit(1);
         }
     case 0x05: return *reinterpret_cast<std::uint16_t*>(m_ppu.m_pallete_ram + ((addr - 0x05000000) & 0x3FF));
@@ -160,27 +162,14 @@ void Memory::write_word(std::uint32_t addr, std::uint32_t value) {
         return;
 
     mapped_registers:
-        std::cout << "write word to mapped registers\n";
-        printf("%08X: %08X\n", addr, value);
-        std::exit(1);
-
-        // switch (addr) {
-        // case 0x04000000:
-        //     *(uint32_t *)ppu_mmio = word;
-        //     uint8_t mode = (*ppu_mmio >> 8) & 0x1F;
-        //     is_rendering_bitmap = mode == 3 | mode == 4 | mode == 5;
-        //     return;
-        // case 0x04000208:
-        //     reg_ime = word;
-        //     return;
-        // default:
-        //     if (addr >= 0x04000000 && addr <= 0x04000054) {
-        //         *(uint32_t *)(ppu_mmio + (addr - 0x04000000)) = word;
-        //     } else {
-        //         printf("[write] unmapped hardware register: %08X\n", addr);
-        //         exit(1);
-        //     }
-        // }
+        if (addr >= 0x04000000 && addr <= 0x04000054) {
+            *reinterpret_cast<std::uint32_t*>(m_ppu.m_mmio.data() + (addr - 0x04000000)) = value;
+        } else if (addr == 0x04000208) {
+            m_ime = value;
+        } else {
+            printf("[write] unmapped hardware register: %08X\n", addr);
+            exit(1);
+        }
 
     pallete_ram_reg:
         *reinterpret_cast<std::uint32_t*>(m_ppu.m_pallete_ram + ((addr - 0x05000000) & 0x3FF)) = value;
@@ -224,18 +213,12 @@ void Memory::write_halfword(std::uint32_t addr, std::uint16_t value) {
         return;
 
     mapped_registers:
-        switch (addr) {
-        case 0x04000208:
-            std::cout << "reg ime unimplemented" << std::endl;
+        if (addr >= 0x04000000 && addr <= 0x04000054) {
+            *reinterpret_cast<std::uint16_t*>(m_ppu.m_mmio.data() + (addr - 0x04000000)) = value;
+            return;
+        } else {
+            printf("[write] unmapped hardware register: %08X\n", addr);
             std::exit(1);
-        default:
-            if (addr >= 0x04000000 && addr <= 0x04000054) {
-                *reinterpret_cast<std::uint16_t*>(m_ppu.m_mmio + (addr - 0x04000000)) = value;
-                return;
-            } else {
-                printf("[write] unmapped hardware register: %08X\n", addr);
-                std::exit(1);
-            }
         }
 
     pallete_ram_reg:
@@ -249,11 +232,9 @@ void Memory::write_halfword(std::uint32_t addr, std::uint16_t value) {
         return;
 
     oam_reg:
-        std::cout << "oam" << std::endl;
-        std::exit(1);
-        // *(uint16_t *)(oam + ((addr - 0x07000000) & 0x3FF)) = halfword;
-        // return;
-    
+        *reinterpret_cast<std::uint16_t*>(m_ppu.m_oam + ((addr - 0x07000000) & 0x3FF)) = value;
+        return;
+
     cart_ram_reg:
         printf("cart ram write unhandled\n");
         exit(1);
@@ -286,7 +267,7 @@ void Memory::write_byte(uint32_t addr, uint8_t byte) {
             std::exit(1);
         default:
             if (addr >= 0x04000000 && addr <= 0x04000054) {
-                *(m_ppu.m_mmio + (addr - 0x04000000)) = byte;
+                m_ppu.m_mmio[addr - 0x04000000] = byte;
             } else {
                 printf("[write] unmapped hardware register: %08X\n", addr);
                 exit(1);
@@ -303,15 +284,15 @@ void Memory::write_byte(uint32_t addr, uint8_t byte) {
 
     vram_reg: {
         addr = (addr - 0x06000000) & 0x1FFFF;
-        if (addr >= 0x18000) addr -= 0x8000;
-
+        addr -= (addr >= 0x18000) * 0x8000;
+        
         // byte writes to obj vram are ignored
-        if (addr >= 0x14000) return;
-
-        uint32_t bg_vram_size = 0x10000;
-        if (0) bg_vram_size = 0x14000; // TODO: UPDATE!
+        if (addr >= 0x14000) {
+            return;
+        }
 
         // byte writes to bg vram are duplicated across the halfword
+        std::uint32_t bg_vram_size = 0x10000 + (0x14000 * (m_ppu.is_rendering_bitmap()));
         if (addr < bg_vram_size) {
             uint16_t duplicated_halfword = (byte << 8) | byte;
             *reinterpret_cast<uint16_t*>(m_ppu.m_vram + (addr & ~1)) = duplicated_halfword;

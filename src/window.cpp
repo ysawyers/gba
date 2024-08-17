@@ -102,7 +102,7 @@ void Window::emulate(const std::string&& rom_filepath) {
             }
         }
 
-        auto frame_buffer = reinterpret_cast<std::uint16_t*>(cpu.render_frame().data());
+        auto frame_buffer = reinterpret_cast<std::uint16_t*>(cpu.render_frame(key_input).data());
         render_frame(frame_buffer);
         frames_rendered += 1;
 

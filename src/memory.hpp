@@ -8,7 +8,7 @@
 
 class Memory {
     public:
-        Memory() {
+        Memory() : m_key_input(0), m_ime(0) {
             m_bios.resize(0x4000);
             m_ewram.resize(0x40000);
             m_iwram.resize(0x8000);
@@ -34,12 +34,16 @@ class Memory {
 
         std::array<std::array<std::uint16_t, 240>, 160>& get_frame();
 
+        std::uint16_t m_key_input;
+
     private:
         std::vector<std::uint8_t> m_bios;
         std::vector<std::uint8_t> m_ewram;
         std::vector<std::uint8_t> m_iwram;
         std::vector<std::uint8_t> m_rom;
         PPU m_ppu;
+
+        bool m_ime;
 };
 
 #endif

@@ -162,7 +162,12 @@ bool CPU::barrel_shifter(
 int CPU::branch(std::uint32_t instr) {
     bool bl = (instr >> 24) & 1;
     std::int32_t nn = (static_cast<std::int32_t>((instr & 0xFFFFFF) << 8) >> 8) * 4;
-    if (bl) m_regs[14] = m_regs[15] - 4;
+    if (m_thumb_enabled) {
+        nn >>= 1;
+    }
+    if (bl) {
+        m_regs[14] = m_regs[15] - 4;
+    }
     m_regs[15] += nn;
     m_pipeline_invalid = true;
     return 1;
@@ -735,6 +740,38 @@ int CPU::mul(std::uint32_t instr) {
     return 1;
 }
 
+std::uint32_t CPU::thumb_translate_1(std::uint16_t instr) {
+    std::uint32_t translation = 0b11100001101100000000000000000000;
+    std::uint32_t shift_amount = (instr >> 6) & 0x1F;
+    std::uint32_t rs = (instr >> 3) & 0x7;
+    std::uint32_t rd = instr & 0x7;
+    std::uint32_t shift_type = (instr >> 11) & 0x3;
+
+    translation |= (rd << 12);
+    translation |= (shift_amount << 7);
+    translation |= (shift_type << 5);
+    translation |= rs;
+
+    return translation;
+}
+
+std::uint32_t CPU::thumb_translate_2(std::uint16_t instr) {
+    std::uint32_t translation = 0b11100000000100000000000000000000;
+    std::uint32_t rn_or_nn = (instr >> 6) & 0x7;
+    std::uint32_t rs = (instr >> 3) & 0x7;
+    std::uint32_t rd = instr & 0x7;
+    std::uint32_t i = (instr >> 10) & 1;
+    std::uint32_t arm_opcode = 0x2 << !((instr >> 9) & 1);
+
+    translation |= (i << 25);
+    translation |= (arm_opcode << 21);
+    translation |= (rs << 16);
+    translation |= (rd << 12);
+    translation |= rn_or_nn;
+
+    return translation;
+}
+
 std::uint32_t CPU::thumb_translate_3(std::uint16_t instr) {
     std::uint32_t translation = 0b11100010000100000000000000000000;
     std::uint32_t rd = (instr >> 8) & 0x7;
@@ -767,6 +804,78 @@ std::uint32_t CPU::thumb_translate_5(std::uint16_t instr, std::uint32_t rs, std:
     return translation;
 }
 
+std::uint32_t CPU::thumb_translate_9(std::uint16_t instr) {
+    std::uint32_t translation = 0b11100101100000000000000000000000;
+    std::uint32_t rb = (instr >> 3) & 0x7;
+    std::uint32_t rd = instr & 0x7;
+    std::uint32_t b = (instr >> 12) & 1;
+    std::uint32_t l = (instr >> 11) & 1;
+    std::uint32_t nn = ((instr >> 6) & 0x1F) << (!b << 1);
+
+    translation |= (b << 22);
+    translation |= (l << 20);
+    translation |= (rb << 16);
+    translation |= (rd << 12);
+    translation |= nn;
+    
+    return translation;
+}
+
+std::uint32_t CPU::thumb_translate_10(std::uint16_t instr) {
+    std::uint32_t translation = 0b11100001110000000000000010110000;
+    std::uint32_t rb = (instr >> 3) & 0x7;
+    std::uint32_t rd = instr & 0x7;
+    std::uint32_t nn = ((instr >> 6) & 0x1F) << 1;
+    std::uint32_t l = ((instr >> 11) & 1);
+
+    translation |= (l << 20);
+    translation |= (rd << 12);
+    translation |= (rb << 16);
+    translation |= (((nn & 0xF0) >> 4) << 8);
+    translation |= (nn & 0xF);
+
+    return translation;
+}
+
+std::uint32_t CPU::thumb_translate_14(std::uint16_t instr) {
+    std::uint32_t translation = 0b11101000001011010000000000000000;
+    std::uint32_t opcode = (instr >> 11) & 1;
+    std::uint32_t pc_or_lr = (instr >> 8) & 1;
+    std::uint32_t reg_list = instr & 0xFF;
+
+    translation |= (!opcode << 24);
+    translation |= (opcode << 23);
+    translation |= (opcode << 20);
+    translation |= reg_list;
+    translation |= ((pc_or_lr & 1) << (0xE | opcode));
+
+    return translation;
+}
+
+std::uint32_t CPU::thumb_translate_15(std::uint16_t instr) {
+    std::uint32_t translation = 0b11101000101000000000000000000000;
+    std::uint32_t opcode = (instr >> 11) & 1;
+    std::uint32_t rb = (instr >> 8) & 0x7;
+    std::uint32_t reg_list = instr & 0xFF;
+
+    translation |= (opcode << 20);
+    translation |= (rb << 16);
+    translation |= reg_list;
+
+    return translation;
+}
+
+std::uint32_t CPU::thumb_translate_16(std::uint16_t instr) {
+    std::uint32_t translation = 0b00001010000000000000000000000000;
+    std::uint32_t cond = (instr >> 8) & 0xF;
+    std::uint32_t offset = static_cast<std::int32_t>(static_cast<std::int8_t>((instr & 0xFF)));
+
+    translation |= (cond << 28);
+    translation |= (offset & 0xFFFFFF);
+
+    return translation;
+}
+
 int CPU::execute() {
     if (m_thumb_enabled) {
         std::uint16_t instr = m_pipeline_invalid ? fetch_thumb() : m_pipeline;
@@ -774,18 +883,59 @@ int CPU::execute() {
         m_pipeline_invalid = false;
 
         switch (m_thumb_lut[instr >> 6]) {
-        case InstrFormat::THUMB_1: {
-            printf("thumb 1\n");
-            std::exit(1);
-        }
-        case InstrFormat::THUMB_2: {
-            printf("thumb 2\n");
-            std::exit(1);
-        }
+        case InstrFormat::THUMB_1: return alu(thumb_translate_1(instr));
+        case InstrFormat::THUMB_2: return alu(thumb_translate_2(instr));
         case InstrFormat::THUMB_3: return alu(thumb_translate_3(instr));
         case InstrFormat::THUMB_4: {
-            printf("thumb 4\n");
-            std::exit(1);
+            std::uint32_t translation = 0b11100000000100000000000000000000;
+            std::uint32_t rd = instr & 0x7;
+            std::uint32_t rs = (instr >> 3) & 0x7;
+            std::uint32_t arm_opcode = (instr >> 6) & 0xF;
+            ShiftType shift_type = ShiftType::LSL;
+
+            translation |= (rd << 12);
+
+            switch ((instr >> 6) & 0xF) {
+            case 0x2:
+                goto thumb_shift_instr;
+            case 0x3:
+                shift_type = ShiftType::LSR;
+                goto thumb_shift_instr;
+            case 0x4:
+                shift_type = ShiftType::ASR;
+                goto thumb_shift_instr;
+            case 0x7:
+                shift_type = ShiftType::ROR;
+                goto thumb_shift_instr;
+            case 0x9: // [unique case #1] NEG -> RSB Rd, Rs, #0
+                translation |= (0x3 << 21);
+                translation |= (0x1 << 25);
+                translation |= (rs << 16);
+                return alu(translation);
+            case 0xD: // [unique case #2] MUL -> MULS Rd, Rs, Rd
+                translation |= (rd << 16);
+                translation |= rs;
+                translation |= (rd << 8);
+                return mul(translation);
+            }
+
+            translation |= rs;
+
+            complete_translation:
+                translation |= (arm_opcode << 21);
+                translation |= (rd << 16);
+                translation |= (static_cast<std::uint32_t>(std::to_underlying(shift_type)) << 5);
+                return alu(translation);
+
+            // LSL,LSR,ASR,ROR -> MOV rd, rd <SHIFT> rs
+            thumb_shift_instr:
+                arm_opcode = 0xD;
+                translation |= (0x1 << 4);
+                translation |= (rs << 8);
+                translation |= rd;
+                goto complete_translation;
+            
+            std::unreachable();
         }
         case InstrFormat::THUMB_5: {
             std::uint32_t thumb_opcode = (instr >> 8) & 0x3;
@@ -798,8 +948,10 @@ int CPU::execute() {
             return alu(thumb_translate_5(instr, rs, thumb_opcode));
         }
         case InstrFormat::THUMB_6: {
-            printf("thumb 6\n");
-            std::exit(1);
+            std::uint8_t rd = (instr >> 8) & 0x7;
+            std::uint16_t nn = (instr & 0xFF) << 2;
+            m_regs[rd] = m_mem.read_word((m_regs[15] & ~2) + nn);
+            return 1;
         }
         case InstrFormat::THUMB_7: {
             printf("thumb 7\n");
@@ -809,14 +961,8 @@ int CPU::execute() {
             printf("thumb 8\n");
             std::exit(1);
         }
-        case InstrFormat::THUMB_9: {
-            printf("thumb 9\n");
-            std::exit(1);
-        }
-        case InstrFormat::THUMB_10: {
-            printf("thumb 10\n");
-            std::exit(1);
-        }
+        case InstrFormat::THUMB_9: return single_transfer(thumb_translate_9(instr));
+        case InstrFormat::THUMB_10: return halfword_transfer(thumb_translate_10(instr));
         case InstrFormat::THUMB_11: {
             printf("thumb 11\n");
             std::exit(1);
@@ -835,18 +981,9 @@ int CPU::execute() {
             printf("thumb 13\n");
             std::exit(1);
         }
-        case InstrFormat::THUMB_14: {
-            printf("thumb 14\n");
-            std::exit(1);
-        }
-        case InstrFormat::THUMB_15: {
-            printf("thumb 15\n");
-            std::exit(1);
-        }
-        case InstrFormat::THUMB_16: {
-            printf("thumb 16\n");
-            std::exit(1);
-        }
+        case InstrFormat::THUMB_14: return block_transfer(thumb_translate_14(instr));
+        case InstrFormat::THUMB_15: return block_transfer(thumb_translate_15(instr));
+        case InstrFormat::THUMB_16: return branch(thumb_translate_16(instr));
         case InstrFormat::THUMB_17: {
             printf("thumb 17\n");
             std::exit(1);
@@ -855,9 +992,26 @@ int CPU::execute() {
             printf("thumb 18\b");
             std::exit(1);
         }
-        case InstrFormat::THUMB_19: {
-            printf("thumb 19\n");
-            std::exit(1);
+        case InstrFormat::THUMB_19_PREFIX: {
+            std::uint32_t upper_half_offset = static_cast<std::int32_t>((instr & 0x7FF) << 21) >> 21;
+            m_regs[14] = m_regs[15] + (upper_half_offset << 12);
+            return 1;
+        }
+        case InstrFormat::THUMB_19_SUFFIX: {
+            std::uint32_t lower_half_offset = instr & 0x7FF;
+            std::uint32_t curr_pc = m_regs[15];
+            switch ((instr >> 11) & 0x1F) {
+            case 0b11111:
+                m_regs[15] = m_regs[14] + (lower_half_offset << 1);
+                m_pipeline_invalid = true;
+                break;
+            case 0b11101:
+                printf("BLX THUMB\n");
+                exit(1);
+            default: std::unreachable();
+            }
+            m_regs[14] = (curr_pc - 2) | 1;
+            return 1;
         }
         case InstrFormat::NOP: {
             printf("thumb found: %08X\n", instr >> 6);
@@ -908,13 +1062,10 @@ void CPU::dump_state() {
     printf("psr: %08X\n", get_psr());
 }
 
-std::array<std::array<std::uint16_t, 240>, 160>& CPU::render_frame() {
+std::array<std::array<std::uint16_t, 240>, 160>& CPU::render_frame(std::uint16_t key_input) {
+    m_mem.m_key_input = key_input;
     int cycles = 0;
     while (cycles < CYCLES_PER_FRAME) {
-        // if (cycles == 569) {
-        //     dump_state();
-        //     std::exit(1);
-        // }
         int instr_cycles = execute();
         m_mem.tick_components(instr_cycles);
         cycles += instr_cycles;

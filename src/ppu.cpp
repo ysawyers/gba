@@ -7,7 +7,12 @@ constexpr std::uint8_t frame_height = 160;
 constexpr std::uint8_t frame_width = 240;
 
 std::uint16_t PPU::get_dispcnt() {
-    return *reinterpret_cast<std::uint16_t*>(m_mmio);
+    return *reinterpret_cast<std::uint16_t*>(m_mmio.data());
+}
+
+bool PPU::is_rendering_bitmap() {
+    std::uint8_t rendering_mode = get_dispcnt() & 0x7;
+    return (rendering_mode == 3 | rendering_mode == 4 | rendering_mode == 5);
 }
 
 void PPU::scanline_tilemap_0() {
@@ -57,7 +62,7 @@ void PPU::tick(int cycles) {
                 m_scanline_cycles = 0;
                 if (++m_vcount == 228) {
                     m_vcount = 0;
-                    *reinterpret_cast<std::uint16_t*>(m_mmio + 4) &= ~3;
+                    *reinterpret_cast<std::uint16_t*>(m_mmio.data() + 4) &= ~3;
                 }
             }
         } else if (m_scanline_cycles == cycles_per_scanline) {
@@ -65,13 +70,13 @@ void PPU::tick(int cycles) {
             m_scanline_cycles = 0;
             m_vcount += 1;
             if (m_vcount == frame_height) {
-                *reinterpret_cast<std::uint16_t*>(m_mmio + 4) |= 3;
+                *reinterpret_cast<std::uint16_t*>(m_mmio.data() + 4) |= 3;
             } else {
-                *reinterpret_cast<std::uint16_t*>(m_mmio + 4) &= ~3;
+                *reinterpret_cast<std::uint16_t*>(m_mmio.data() + 4) &= ~3;
             }
         } else if (m_scanline_cycles == 1004) {
             // hblank
-            *reinterpret_cast<std::uint16_t*>(m_mmio + 4) |= 2;
+            *reinterpret_cast<std::uint16_t*>(m_mmio.data() + 4) |= 2;
         } else if (m_scanline_cycles == 960) {
             auto reg_dispct = get_dispcnt();
             std::uint8_t enable = reg_dispct >> 8;
@@ -97,8 +102,8 @@ void PPU::tick(int cycles) {
                     break;
                 }
             } else {
-                std::cout << "no rendering bits enabled yet!\n";
-                std::exit(1);
+                // std::cout << "no rendering bits enabled yet!\n";
+                // std::exit(1);
             }
         }
     }
