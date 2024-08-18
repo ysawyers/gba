@@ -83,6 +83,7 @@ std::uint32_t CPU::ror(std::uint32_t operand, std::size_t shift_amount) {
 
 void CPU::safe_reg_assign(std::uint8_t reg, std::uint32_t value) {
     m_regs[reg] = value;
+    m_regs[15] = m_regs[15] & ~(0b01 | (0b10 * !m_thumb_enabled));
     m_pipeline_invalid |= (reg == 0xF);
 }
 
@@ -161,7 +162,7 @@ bool CPU::barrel_shifter(
 
 int CPU::branch(std::uint32_t instr) {
     bool bl = (instr >> 24) & 1;
-    std::int32_t nn = (static_cast<std::int32_t>((instr & 0xFFFFFF) << 8) >> 8) * 4;
+    std::int32_t nn = (static_cast<std::int32_t>((instr & 0xFFFFFF) << 8) >> 8) << 2;
     if (m_thumb_enabled) {
         nn >>= 1;
     }
@@ -176,6 +177,7 @@ int CPU::branch(std::uint32_t instr) {
 int CPU::branch_ex(std::uint32_t instr) {
     std::uint8_t rn = instr & 0xF;
     if (((instr >> 4) & 0xF) == 0x1) {
+        // TODO: micro-optimization but we can remove this branch here.
         if (m_regs[rn] & 1) {
             m_thumb_enabled = true;
             m_regs[15] = m_regs[rn] & ~0x1;
@@ -746,12 +748,10 @@ std::uint32_t CPU::thumb_translate_1(std::uint16_t instr) {
     std::uint32_t rs = (instr >> 3) & 0x7;
     std::uint32_t rd = instr & 0x7;
     std::uint32_t shift_type = (instr >> 11) & 0x3;
-
     translation |= (rd << 12);
     translation |= (shift_amount << 7);
     translation |= (shift_type << 5);
     translation |= rs;
-
     return translation;
 }
 
@@ -762,13 +762,11 @@ std::uint32_t CPU::thumb_translate_2(std::uint16_t instr) {
     std::uint32_t rd = instr & 0x7;
     std::uint32_t i = (instr >> 10) & 1;
     std::uint32_t arm_opcode = 0x2 << !((instr >> 9) & 1);
-
     translation |= (i << 25);
     translation |= (arm_opcode << 21);
     translation |= (rs << 16);
     translation |= (rd << 12);
     translation |= rn_or_nn;
-
     return translation;
 }
 
@@ -778,14 +776,12 @@ std::uint32_t CPU::thumb_translate_3(std::uint16_t instr) {
     std::uint32_t nn = instr & 0xFF;
     std::uint32_t thumb_opcode = (instr >> 11) & 0x3;
     std::uint32_t arm_opcode = 0b1101;
-
     arm_opcode = (arm_opcode << thumb_opcode) & 0xF;
     arm_opcode >>= (!(~thumb_opcode & 0x3) << 1);
     translation |= (arm_opcode << 21);
     translation |= (rd << 16);
     translation |= (rd << 12);
     translation |= nn;
-
     return translation;
 }
 
@@ -793,14 +789,43 @@ std::uint32_t CPU::thumb_translate_5(std::uint16_t instr, std::uint32_t rs, std:
     std::uint32_t translation = 0b11100000000000000000000000000000;
     std::uint32_t rd = (((instr >> 7) & 1) << 3) | (instr & 0x7); // MSBd added (r0-r15)
     std::uint32_t arm_opcode = 0b110100;
-
     arm_opcode = (arm_opcode >> thumb_opcode) & 0xF;
     translation |= ((thumb_opcode == 0x1) << 20);
     translation |= (arm_opcode << 21);
     translation |= (rd << 16);
     translation |= (rd << 12);
     translation |= rs;
+    return translation;
+}
 
+std::uint32_t CPU::thumb_translate_7(std::uint16_t instr) {
+    std::uint32_t translation = 0b11100111100000000000000000000000;
+    std::uint32_t ro = (instr >> 6) & 0x7;
+    std::uint32_t rb = (instr >> 3) & 0x7;
+    std::uint32_t rd = instr & 0x7;
+    std::uint32_t b = (instr >> 10) & 1;
+    std::uint32_t l = (instr >> 11) & 1;
+    translation |= (b << 22);
+    translation |= (l << 20);
+    translation |= (rb << 16);
+    translation |= (rd << 12);
+    translation |= ro;
+    return translation;
+}
+
+std::uint32_t CPU::thumb_translate_8(std::uint16_t instr) {
+    std::uint32_t translation = 0b11100001100000000000000010010000;
+    std::uint32_t ro = (instr >> 6) & 0x7;
+    std::uint32_t rb = (instr >> 3) & 0x7;
+    std::uint32_t rd = instr & 0x7;
+    std::uint32_t thumb_opcode = (instr >> 10) & 0x3;
+    std::uint32_t arm_opcode = (((thumb_opcode << 1) & 0x3) | ((thumb_opcode >> 1) & 1)) | !thumb_opcode;
+    std::uint32_t l = !!thumb_opcode;
+    translation |= (l << 20);
+    translation |= (rb << 16);
+    translation |= (rd << 12);
+    translation |= (arm_opcode << 5);
+    translation |= ro;
     return translation;
 }
 
@@ -811,13 +836,11 @@ std::uint32_t CPU::thumb_translate_9(std::uint16_t instr) {
     std::uint32_t b = (instr >> 12) & 1;
     std::uint32_t l = (instr >> 11) & 1;
     std::uint32_t nn = ((instr >> 6) & 0x1F) << (!b << 1);
-
     translation |= (b << 22);
     translation |= (l << 20);
     translation |= (rb << 16);
     translation |= (rd << 12);
     translation |= nn;
-    
     return translation;
 }
 
@@ -827,13 +850,31 @@ std::uint32_t CPU::thumb_translate_10(std::uint16_t instr) {
     std::uint32_t rd = instr & 0x7;
     std::uint32_t nn = ((instr >> 6) & 0x1F) << 1;
     std::uint32_t l = ((instr >> 11) & 1);
-
     translation |= (l << 20);
     translation |= (rd << 12);
     translation |= (rb << 16);
     translation |= (((nn & 0xF0) >> 4) << 8);
     translation |= (nn & 0xF);
+    return translation;
+}
 
+std::uint32_t CPU::thumb_translate_11(std::uint16_t instr) {
+    std::uint32_t translation = 0b11100101100011010000000000000000;
+    std::uint32_t l = (instr >> 11) & 1;
+    std::uint32_t rd = (instr >> 8) & 0x7;
+    std::uint32_t nn = (instr & 0xFF) << 2;
+    translation |= (l << 20);
+    translation |= (rd << 12);
+    translation |= nn;
+    return translation;
+}
+
+std::uint32_t CPU::thumb_translate_13(std::uint16_t instr) {
+    std::uint32_t translation = 0b11100010000011011101111100000000;
+    std::uint32_t nn = (instr & 0x7F);
+    bool is_signed = (instr >> 7) & 1;
+    translation |= (0x2 << (21 + is_signed));
+    translation |= nn;
     return translation;
 }
 
@@ -842,13 +883,11 @@ std::uint32_t CPU::thumb_translate_14(std::uint16_t instr) {
     std::uint32_t opcode = (instr >> 11) & 1;
     std::uint32_t pc_or_lr = (instr >> 8) & 1;
     std::uint32_t reg_list = instr & 0xFF;
-
     translation |= (!opcode << 24);
     translation |= (opcode << 23);
     translation |= (opcode << 20);
     translation |= reg_list;
     translation |= ((pc_or_lr & 1) << (0xE | opcode));
-
     return translation;
 }
 
@@ -857,11 +896,9 @@ std::uint32_t CPU::thumb_translate_15(std::uint16_t instr) {
     std::uint32_t opcode = (instr >> 11) & 1;
     std::uint32_t rb = (instr >> 8) & 0x7;
     std::uint32_t reg_list = instr & 0xFF;
-
     translation |= (opcode << 20);
     translation |= (rb << 16);
     translation |= reg_list;
-
     return translation;
 }
 
@@ -869,10 +906,15 @@ std::uint32_t CPU::thumb_translate_16(std::uint16_t instr) {
     std::uint32_t translation = 0b00001010000000000000000000000000;
     std::uint32_t cond = (instr >> 8) & 0xF;
     std::uint32_t offset = static_cast<std::int32_t>(static_cast<std::int8_t>((instr & 0xFF)));
-
     translation |= (cond << 28);
     translation |= (offset & 0xFFFFFF);
+    return translation;
+}
 
+std::uint32_t CPU::thumb_translate_18(std::uint16_t instr) {
+    std::uint32_t translation = 0b11101010000000000000000000000000;
+    std::uint32_t offset = static_cast<std::int32_t>((static_cast<std::int16_t>((instr & 0x7FF) << 5) >> 5));
+    translation |= (offset & 0xFFFFFF);
     return translation;
 }
 
@@ -953,20 +995,11 @@ int CPU::execute() {
             m_regs[rd] = m_mem.read_word((m_regs[15] & ~2) + nn);
             return 1;
         }
-        case InstrFormat::THUMB_7: {
-            printf("thumb 7\n");
-            std::exit(1);
-        }
-        case InstrFormat::THUMB_8: {
-            printf("thumb 8\n");
-            std::exit(1);
-        }
+        case InstrFormat::THUMB_7: return single_transfer(thumb_translate_7(instr));
+        case InstrFormat::THUMB_8: return halfword_transfer(thumb_translate_8(instr));
         case InstrFormat::THUMB_9: return single_transfer(thumb_translate_9(instr));
         case InstrFormat::THUMB_10: return halfword_transfer(thumb_translate_10(instr));
-        case InstrFormat::THUMB_11: {
-            printf("thumb 11\n");
-            std::exit(1);
-        }
+        case InstrFormat::THUMB_11: return single_transfer(thumb_translate_11(instr));
         case InstrFormat::THUMB_12: {
             std::uint8_t rd = (instr >> 8) & 0x7;
             std::uint32_t nn = (instr & 0xFF) << 2;
@@ -977,21 +1010,21 @@ int CPU::execute() {
             }
             return 1;
         }
-        case InstrFormat::THUMB_13: {
-            printf("thumb 13\n");
-            std::exit(1);
-        }
+        case InstrFormat::THUMB_13: return alu(thumb_translate_13(instr));
         case InstrFormat::THUMB_14: return block_transfer(thumb_translate_14(instr));
         case InstrFormat::THUMB_15: return block_transfer(thumb_translate_15(instr));
-        case InstrFormat::THUMB_16: return branch(thumb_translate_16(instr));
+        case InstrFormat::THUMB_16: {
+            std::uint32_t arm_instr = thumb_translate_16(instr);
+            if (condition(arm_instr)) {
+                return branch(arm_instr);
+            }
+            return 1;
+        }
         case InstrFormat::THUMB_17: {
             printf("thumb 17\n");
             std::exit(1);
         }
-        case InstrFormat::THUMB_18: {
-            printf("thumb 18\b");
-            std::exit(1);
-        }
+        case InstrFormat::THUMB_18: return branch(thumb_translate_18(instr));
         case InstrFormat::THUMB_19_PREFIX: {
             std::uint32_t upper_half_offset = static_cast<std::int32_t>((instr & 0x7FF) << 21) >> 21;
             m_regs[14] = m_regs[15] + (upper_half_offset << 12);
@@ -1006,7 +1039,7 @@ int CPU::execute() {
                 m_pipeline_invalid = true;
                 break;
             case 0b11101:
-                printf("BLX THUMB\n");
+                // printf("BLX THUMB\n");
                 exit(1);
             default: std::unreachable();
             }
@@ -1014,7 +1047,7 @@ int CPU::execute() {
             return 1;
         }
         case InstrFormat::NOP: {
-            printf("thumb found: %08X\n", instr >> 6);
+            // printf("thumb found: %08X\n", instr >> 6);
             std::exit(1);
             return 1;
         }
@@ -1062,6 +1095,7 @@ void CPU::dump_state() {
     printf("psr: %08X\n", get_psr());
 }
 
+// pc is off by 1, figure out why
 std::array<std::array<std::uint16_t, 240>, 160>& CPU::render_frame(std::uint16_t key_input) {
     m_mem.m_key_input = key_input;
     int cycles = 0;

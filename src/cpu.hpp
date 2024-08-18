@@ -98,11 +98,16 @@ class CPU {
         std::uint32_t thumb_translate_2(std::uint16_t instr);
         std::uint32_t thumb_translate_3(std::uint16_t instr);
         std::uint32_t thumb_translate_5(std::uint16_t instr, std::uint32_t rs, std::uint32_t thumb_opcode);
+        std::uint32_t thumb_translate_7(std::uint16_t instr);
+        std::uint32_t thumb_translate_8(std::uint16_t instr);
         std::uint32_t thumb_translate_9(std::uint16_t instr);
         std::uint32_t thumb_translate_10(std::uint16_t instr);
+        std::uint32_t thumb_translate_11(std::uint16_t instr);
+        std::uint32_t thumb_translate_13(std::uint16_t instr);
         std::uint32_t thumb_translate_14(std::uint16_t instr);
         std::uint32_t thumb_translate_15(std::uint16_t instr);
         std::uint32_t thumb_translate_16(std::uint16_t instr);
+        std::uint32_t thumb_translate_18(std::uint16_t instr);
 
         std::uint32_t ror(std::uint32_t operand, std::size_t shift_amount);
         Registers& get_bank(std::uint8_t mode);
