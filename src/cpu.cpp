@@ -1095,7 +1095,6 @@ void CPU::dump_state() {
     printf("psr: %08X\n", get_psr());
 }
 
-// pc is off by 1, figure out why
 std::array<std::array<std::uint16_t, 240>, 160>& CPU::render_frame(std::uint16_t key_input) {
     m_mem.m_key_input = key_input;
     int cycles = 0;
