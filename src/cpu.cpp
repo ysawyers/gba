@@ -72,7 +72,7 @@ std::uint32_t CPU::get_psr() {
 }
 
 std::uint32_t CPU::get_cpsr() {
-    auto& sys = m_banked_regs[SYS];
+    auto& sys = (m_banked_regs[SYS].mode == 0x1F || m_banked_regs[SYS].mode == 0x10) ? m_regs : m_banked_regs[SYS];
     std::uint8_t flags = (sys.flags.n << 3) | (sys.flags.z << 2) | (sys.flags.c << 1) | sys.flags.v;
     return static_cast<std::uint32_t>(flags << 28) | sys.mode;
 }
