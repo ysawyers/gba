@@ -149,7 +149,6 @@ bool CPU::barrel_shifter(
     }
     case ShiftType::ROR:
         if (reg_imm_shift && !shift_amount) {
-            // ROR#0 (shift by immediate): Interpreted as RRX#1 (RCR), like ROR#1, but Op2 Bit 31 set to old C.
             carry_out = operand & 1;
             operand = (static_cast<std::uint32_t>(m_regs.flags.c) << 31) | (operand >> 1);
         } else {
@@ -222,8 +221,6 @@ int CPU::single_transfer(std::uint32_t instr) {
     bool writeback = !p || (p && w);
 
     if (l) {
-        // https://problemkaputt.de/gbatek.htm#armcpumemoryalignments
-        // LDR alignments are weird.
         safe_reg_assign(rd, b ? m_mem.read_byte(addr) : ror(m_mem.read_word(addr), (addr & 0x3) * 8));
     } else {
         std::uint32_t value = m_regs[rd] + ((rd == 0xF) * 4);
@@ -258,8 +255,6 @@ int CPU::halfword_transfer(std::uint32_t instr) {
 
     if (l) {
         bool misaligned_read = addr & 1;
-        // https://problemkaputt.de/gbatek.htm#armcpumemoryalignments
-        // LDRH and LDRSH alignments are weird.
         switch (opcode) {
         case 0x1: {
             safe_reg_assign(rd, misaligned_read ? 
@@ -309,6 +304,7 @@ int CPU::block_transfer(std::uint32_t instr) {
     std::uint8_t rn = (instr >> 16) & 0xF;
     std::uint16_t reg_list = instr & 0xFFFF;
 
+    int first_transfer = __builtin_ffs(reg_list) - 1;
     int transfers = __builtin_popcount(reg_list);
     std::uint32_t transfer_base_addr = m_regs[rn];
     std::uint32_t direction = 4 - (!u * 8);
@@ -323,14 +319,12 @@ int CPU::block_transfer(std::uint32_t instr) {
         }
     }
 
-    // (ARMv4 edge case): for an empty register list r15 is loaded/stored and base register is
-    // written back to +/-40h since the register count is 16 (even though only 1 transfer occurs)
     if (transfers == 0) {
-        std::uint32_t addr = u ? transfer_base_addr + (p * 4) : ((transfer_base_addr + (16 * direction)) + (!p * 4));
         if (l) {
-            m_regs[15] = m_mem.read_word(addr);
+            m_regs[15] = m_mem.read_word(transfer_base_addr);
             m_pipeline_invalid = true;
         } else {
+            std::uint32_t addr = u ? transfer_base_addr + (p * 4) : ((transfer_base_addr + (16 * direction)) + (!p * 4));
             m_mem.write_word(addr, m_regs[15] + (m_thumb_enabled ? 2 : 4));
         }
         m_regs[rn] += (16 * direction);
@@ -339,10 +333,9 @@ int CPU::block_transfer(std::uint32_t instr) {
         m_regs[rn] += (transfers * direction);
     }
 
-    // transfers from lowest memory address to highest
     int reg_start, reg_end, step;
     if (u) {
-        reg_start = __builtin_ffs(reg_list) - 1;
+        reg_start = first_transfer;
         reg_end = 0x10;
         step = 1;
     } else {
@@ -359,19 +352,16 @@ int CPU::block_transfer(std::uint32_t instr) {
                 transfer_base_addr += direction;
             }
     } else {
-        bool base_transferred = (reg_list >> rn) & 1;
-        if (base_transferred && ((__builtin_ffs(reg_list) - 1) == rn)) {
-            std::uint32_t addr = transfer_base_addr + (u * -4) + (direction * (!p + (p * transfers)));
-            m_mem.write_word(addr, transfer_base_addr);
-            reg_list &= ~(1 << rn);
-            transfer_base_addr += (direction * u);
-        }
-
+        std::uint32_t transfer_base_addr_copy = transfer_base_addr;
         std::uint32_t pc_offset = m_thumb_enabled ? 2 : 4;
         for (int i = reg_start; i != reg_end; i += step)
             if ((reg_list >> i) & 1) {
                 std::uint32_t addr = transfer_base_addr + (p * direction);
-                m_mem.write_word(addr, m_regs[i] + ((i == 0xF) * pc_offset));
+                if ((first_transfer == i) && (i == rn)) [[unlikely]] {
+                    m_mem.write_word(addr, transfer_base_addr_copy);
+                } else {
+                    m_mem.write_word(addr, m_regs[i] + ((i == 0xF) * pc_offset));
+                }
                 transfer_base_addr += direction;
             }
     }
@@ -787,7 +777,7 @@ std::uint32_t CPU::thumb_translate_3(std::uint16_t instr) {
 
 std::uint32_t CPU::thumb_translate_5(std::uint16_t instr, std::uint32_t rs, std::uint32_t thumb_opcode) {
     std::uint32_t translation = 0b11100000000000000000000000000000;
-    std::uint32_t rd = (((instr >> 7) & 1) << 3) | (instr & 0x7); // MSBd added (r0-r15)
+    std::uint32_t rd = (((instr >> 7) & 1) << 3) | (instr & 0x7);
     std::uint32_t arm_opcode = 0b110100;
     arm_opcode = (arm_opcode >> thumb_opcode) & 0xF;
     translation |= ((thumb_opcode == 0x1) << 20);
@@ -949,12 +939,12 @@ int CPU::execute() {
             case 0x7:
                 shift_type = ShiftType::ROR;
                 goto thumb_shift_instr;
-            case 0x9: // [unique case #1] NEG -> RSB Rd, Rs, #0
+            case 0x9:
                 translation |= (0x3 << 21);
                 translation |= (0x1 << 25);
                 translation |= (rs << 16);
                 return alu(translation);
-            case 0xD: // [unique case #2] MUL -> MULS Rd, Rs, Rd
+            case 0xD:
                 translation |= (rd << 16);
                 translation |= rs;
                 translation |= (rd << 8);
@@ -969,7 +959,6 @@ int CPU::execute() {
                 translation |= (static_cast<std::uint32_t>(std::to_underlying(shift_type)) << 5);
                 return alu(translation);
 
-            // LSL,LSR,ASR,ROR -> MOV rd, rd <SHIFT> rs
             thumb_shift_instr:
                 arm_opcode = 0xD;
                 translation |= (0x1 << 4);
@@ -1039,18 +1028,14 @@ int CPU::execute() {
                 m_pipeline_invalid = true;
                 break;
             case 0b11101:
-                // printf("BLX THUMB\n");
-                exit(1);
+                printf("BLX THUMB\n");
+                std::exit(1);
             default: std::unreachable();
             }
             m_regs[14] = (curr_pc - 2) | 1;
             return 1;
         }
-        case InstrFormat::NOP: {
-            // printf("thumb found: %08X\n", instr >> 6);
-            std::exit(1);
-            return 1;
-        }
+        case InstrFormat::NOP: return 1;
         default: std::unreachable();
         }
     } else {
@@ -1060,7 +1045,6 @@ int CPU::execute() {
 
         if (condition(instr)) [[likely]] {
             std::uint16_t opcode = (((instr >> 20) & 0xFF) << 4) | ((instr >> 4) & 0xF);
-            // printf("opcode used: %08X\n", opcode);
             switch (m_arm_lut[opcode]) {
             case InstrFormat::B: return branch(instr);
             case InstrFormat::BX: return branch_ex(instr);
@@ -1073,16 +1057,12 @@ int CPU::execute() {
             case InstrFormat::SWP: return swp(instr);
             case InstrFormat::ALU: return alu(instr);
             case InstrFormat::MUL: return mul(instr);
-            case InstrFormat::NOP: {
-                printf("arm found: %08X\n", opcode);
-                std::exit(1);
-                return 1;
-            }
+            case InstrFormat::NOP: return 1;
             default: std::unreachable();
             }
         }
+        return 1;
     }
-    return 1;
 }
 
 void CPU::dump_state() {

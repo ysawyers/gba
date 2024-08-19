@@ -102,8 +102,10 @@ void PPU::tick(int cycles) {
                     break;
                 }
             } else {
-                // std::cout << "no rendering bits enabled yet!\n";
-                // std::exit(1);
+                std::uint16_t bg_color = *reinterpret_cast<std::uint16_t*>(m_pallete_ram);
+                for (int i = 0; i < 240; i++) {
+                    m_frame[m_vcount][i] = bg_color;
+                }
             }
         }
     }

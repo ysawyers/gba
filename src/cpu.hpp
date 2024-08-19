@@ -52,6 +52,11 @@ class CPU {
 
         std::array<std::array<std::uint16_t, 240>, 160>& render_frame(std::uint16_t key_input);
 
+    private:
+        enum class ShiftType {
+            LSL = 0, LSR, ASR, ROR 
+        };
+
         enum class InstrFormat : std::uint8_t {
             NOP = 0, B, BX, SWP, MRS, SWI, MUL, MSR, ALU, 
             SINGLE_TRANSFER, HALFWORD_TRANSFER, BLOCK_TRANSFER,
@@ -61,11 +66,6 @@ class CPU {
             THUMB_19_PREFIX, THUMB_19_SUFFIX
         };
 
-        enum class ShiftType {
-            LSL = 0, LSR, ASR, ROR 
-        };
-
-    private:
         std::uint32_t fetch_arm();
         std::uint16_t fetch_thumb();
         int execute();
