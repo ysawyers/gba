@@ -47,14 +47,14 @@ std::uint32_t Memory::read_word(std::uint32_t addr) {
             printf("[read] unmapped hardware register: %08X\n", addr);
             exit(1);
         }
-    case 0x05: return *reinterpret_cast<std::uint32_t*>(m_ppu.m_pallete_ram + ((addr - 0x05000000) & 0x3FF));
+    case 0x05: return *reinterpret_cast<std::uint32_t*>(m_ppu.m_pallete_ram.data() + ((addr - 0x05000000) & 0x3FF));
     case 0x06:
         addr = (addr - 0x06000000) & 0x1FFFF;
         if (addr >= 0x18000 && addr <= 0x1FFFF) {
-            return *reinterpret_cast<std::uint32_t*>(m_ppu.m_vram + (addr - 0x8000));
+            return *reinterpret_cast<std::uint32_t*>(m_ppu.m_vram.data() + (addr - 0x8000));
         }
-        return *reinterpret_cast<std::uint32_t*>(m_ppu.m_vram + addr);
-    case 0x07: return *reinterpret_cast<std::uint32_t*>(m_ppu.m_oam + ((addr - 0x07000000) & 0x3FF));
+        return *reinterpret_cast<std::uint32_t*>(m_ppu.m_vram.data() + addr);
+    case 0x07: return *reinterpret_cast<std::uint32_t*>(m_ppu.m_oam.data() + ((addr - 0x07000000) & 0x3FF));
     case 0x08:
     case 0x09:
     case 0x0A:
@@ -87,14 +87,14 @@ std::uint16_t Memory::read_halfword(std::uint32_t addr) {
             printf("[read] unmapped hardware registers: %08X\n", addr);
             exit(1);
         }
-    case 0x05: return *reinterpret_cast<std::uint16_t*>(m_ppu.m_pallete_ram + ((addr - 0x05000000) & 0x3FF));
+    case 0x05: return *reinterpret_cast<std::uint16_t*>(m_ppu.m_pallete_ram.data() + ((addr - 0x05000000) & 0x3FF));
     case 0x06:
         addr = (addr - 0x06000000) & 0x1FFFF;
         if (addr >= 0x18000 && addr <= 0x1FFFF) {
-            return *reinterpret_cast<std::uint16_t*>(m_ppu.m_vram + (addr - 0x8000));
+            return *reinterpret_cast<std::uint16_t*>(m_ppu.m_vram.data() + (addr - 0x8000));
         }
-        return *reinterpret_cast<std::uint16_t*>(m_ppu.m_vram + addr);
-    case 0x07: return *reinterpret_cast<std::uint16_t*>(m_ppu.m_oam + ((addr - 0x07000000) & 0x3FF));
+        return *reinterpret_cast<std::uint16_t*>(m_ppu.m_vram.data() + addr);
+    case 0x07: return *reinterpret_cast<std::uint16_t*>(m_ppu.m_oam.data() + ((addr - 0x07000000) & 0x3FF));
     case 0x08:
     case 0x09:
     case 0x0A:
@@ -120,12 +120,12 @@ std::uint8_t Memory::read_byte(std::uint32_t addr) {
             printf("[read] unmapped hardware register: %08X\n", addr);
             exit(1);
         }
-    case 0x05: return m_ppu.m_pallete_ram[(addr - 0x05000000) & 0x3FF];
+    case 0x05: return m_ppu.m_pallete_ram.data()[(addr - 0x05000000) & 0x3FF];
     case 0x06:
         addr = (addr - 0x06000000) & 0x1FFFF;
         if (addr >= 0x18000) addr -= 0x8000;
-        return m_ppu.m_vram[addr];
-    case 0x07: return m_ppu.m_oam[(addr - 0x07000000) & 0x3FF];
+        return m_ppu.m_vram.data()[addr];
+    case 0x07: return m_ppu.m_oam.data()[(addr - 0x07000000) & 0x3FF];
     case 0x08:
     case 0x09:
     case 0x0A:
@@ -172,17 +172,17 @@ void Memory::write_word(std::uint32_t addr, std::uint32_t value) {
         }
 
     pallete_ram_reg:
-        *reinterpret_cast<std::uint32_t*>(m_ppu.m_pallete_ram + ((addr - 0x05000000) & 0x3FF)) = value;
+        *reinterpret_cast<std::uint32_t*>(m_ppu.m_pallete_ram.data() + ((addr - 0x05000000) & 0x3FF)) = value;
         return;
 
     vram_reg:
         addr = (addr - 0x06000000) & 0x1FFFF;
         if (addr >= 0x18000) addr -= 0x8000;
-        *reinterpret_cast<std::uint32_t*>(m_ppu.m_vram + addr) = value;
+        *reinterpret_cast<std::uint32_t*>(m_ppu.m_vram.data() + addr) = value;
         return;
 
     oam_reg:
-        *reinterpret_cast<std::uint32_t*>(m_ppu.m_oam + ((addr - 0x07000000) & 0x3FF)) = value;
+        *reinterpret_cast<std::uint32_t*>(m_ppu.m_oam.data() + ((addr - 0x07000000) & 0x3FF)) = value;
         return;
     
     cart_ram_reg:
@@ -222,17 +222,17 @@ void Memory::write_halfword(std::uint32_t addr, std::uint16_t value) {
         }
 
     pallete_ram_reg:
-        *reinterpret_cast<std::uint16_t*>(m_ppu.m_pallete_ram + ((addr - 0x05000000) & 0x3FF)) = value;
+        *reinterpret_cast<std::uint16_t*>(m_ppu.m_pallete_ram.data() + ((addr - 0x05000000) & 0x3FF)) = value;
         return;
 
     vram_reg:
         addr = (addr - 0x06000000) & 0x1FFFF;
         if (addr >= 0x18000) addr -= 0x8000;
-        *reinterpret_cast<std::uint16_t*>(m_ppu.m_vram + addr) = value;
+        *reinterpret_cast<std::uint16_t*>(m_ppu.m_vram.data() + addr) = value;
         return;
 
     oam_reg:
-        *reinterpret_cast<std::uint16_t*>(m_ppu.m_oam + ((addr - 0x07000000) & 0x3FF)) = value;
+        *reinterpret_cast<std::uint16_t*>(m_ppu.m_oam.data() + ((addr - 0x07000000) & 0x3FF)) = value;
         return;
 
     cart_ram_reg:
@@ -278,7 +278,7 @@ void Memory::write_byte(uint32_t addr, uint8_t byte) {
     // byte writes to pallete ram are ignored
     pallete_ram_reg: {
         uint16_t duplicated_halfword = (byte << 8) | byte;
-        *reinterpret_cast<uint16_t*>(m_ppu.m_pallete_ram + (((addr - 0x05000000) & 0x3FF) & ~1)) = duplicated_halfword;
+        *reinterpret_cast<uint16_t*>(m_ppu.m_pallete_ram.data() + (((addr - 0x05000000) & 0x3FF) & ~1)) = duplicated_halfword;
         return;
     }
 
@@ -295,7 +295,7 @@ void Memory::write_byte(uint32_t addr, uint8_t byte) {
         std::uint32_t bg_vram_size = 0x10000 + (0x14000 * (m_ppu.is_rendering_bitmap()));
         if (addr < bg_vram_size) {
             uint16_t duplicated_halfword = (byte << 8) | byte;
-            *reinterpret_cast<uint16_t*>(m_ppu.m_vram + (addr & ~1)) = duplicated_halfword;
+            *reinterpret_cast<uint16_t*>(m_ppu.m_vram.data() + (addr & ~1)) = duplicated_halfword;
         }
         return;
     }

@@ -27,7 +27,7 @@ struct Flags {
 
 class Registers {
     public:
-        Registers() : mode(UNSET) {};
+        Registers() : mode(UNSET), m_list({}) {};
 
         Registers(Registers& regs) {
             flags = regs.flags;
@@ -116,7 +116,7 @@ class CPU {
         void dump_state();
 
         std::array<InstrFormat, 4096> m_arm_lut = ([]() constexpr -> auto {
-            std::array<InstrFormat, 4096> lut;
+            std::array<InstrFormat, 4096> lut{};
             {
                 std::uint16_t postfix = 0b1111 << 8;
                 for (std::uint16_t mask = 0; mask <= 0b11111111; mask++) {
@@ -203,7 +203,7 @@ class CPU {
         })();
 
         std::array<InstrFormat, 1024> m_thumb_lut = ([]() constexpr -> auto {
-            std::array<InstrFormat, 1024> lut;
+            std::array<InstrFormat, 1024> lut{};
             {
                 std::uint16_t suffix = 0b11110 << 5;
                 for (std::uint16_t mask = 0; mask <= 0b11111; mask++) {

@@ -13,7 +13,6 @@ CPU::CPU(const std::string&& rom_filepath)
     m_banked_regs[SYS].mode = 0x1F;
     m_regs.mode = 0x1F;
 
-    // initializes registers while bios is unimplemented
     m_banked_regs[SVC][13] = 0x03007FE0;
     m_banked_regs[IRQ][13] = 0x03007FA0;
     m_regs[13] = 0x03007F00;
@@ -176,14 +175,8 @@ int CPU::branch(std::uint32_t instr) {
 int CPU::branch_ex(std::uint32_t instr) {
     std::uint8_t rn = instr & 0xF;
     if (((instr >> 4) & 0xF) == 0x1) {
-        // TODO: micro-optimization but we can remove this branch here.
-        if (m_regs[rn] & 1) {
-            m_thumb_enabled = true;
-            m_regs[15] = m_regs[rn] & ~0x1;
-        } else {
-            m_thumb_enabled = false;
-            m_regs[15] = m_regs[rn] & ~0x3;
-        }
+        m_thumb_enabled = m_regs[rn] & 1;
+        m_regs[15] = m_regs[rn] & ~(0b1 | (!m_thumb_enabled * 0b10));
     } else {
         std::cout << "BLX" << std::endl;
         std::exit(1);
@@ -357,7 +350,7 @@ int CPU::block_transfer(std::uint32_t instr) {
         for (int i = reg_start; i != reg_end; i += step)
             if ((reg_list >> i) & 1) {
                 std::uint32_t addr = transfer_base_addr + (p * direction);
-                if ((first_transfer == i) && (i == rn)) [[unlikely]] {
+                if ((first_transfer == i) && (i == rn)) {
                     m_mem.write_word(addr, transfer_base_addr_copy);
                 } else {
                     m_mem.write_word(addr, m_regs[i] + ((i == 0xF) * pc_offset));
