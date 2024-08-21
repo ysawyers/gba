@@ -31,7 +31,7 @@ class Registers {
 
         Registers(Registers& regs) {
             flags = regs.flags;
-            mode = regs.mode;
+            mode = regs.mode & 0x1F;
             std::copy(regs.m_list.begin(), regs.m_list.end(), m_list.begin());
         }
 
@@ -107,6 +107,7 @@ class CPU {
         std::uint32_t thumb_translate_14(std::uint16_t instr);
         std::uint32_t thumb_translate_15(std::uint16_t instr);
         std::uint32_t thumb_translate_16(std::uint16_t instr);
+        std::uint32_t thumb_translate_17(std::uint16_t instr);
         std::uint32_t thumb_translate_18(std::uint16_t instr);
 
         std::uint32_t ror(std::uint32_t operand, std::size_t shift_amount);

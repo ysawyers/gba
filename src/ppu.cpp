@@ -1,7 +1,6 @@
 #include "ppu.hpp"
 
 #include <iostream>
-#include <algorithm>
 
 constexpr std::uint32_t cycles_per_scanline = 1232;
 constexpr std::uint8_t frame_height = 160;
@@ -38,7 +37,6 @@ void PPU::render_text_bg(std::uint16_t bgcnt, std::uint16_t bghofs, std::uint16_
 
     auto tx = ((bghofs & ~7) / 8) & (tm_width - 1);
     auto ty = (((m_vcount + bgvofs) & ~7) / 8) & (tm_height - 1);
-    // auto initial_ty = ((bgvofs & ~7) / 8) & (tm_height - 1); ((initial_ty == ty) * ((bgvofs - ((bgvofs & ~7) / 8))))
     auto scanline_x = 0;
 
     while (true) {
@@ -69,7 +67,7 @@ void PPU::render_text_bg(std::uint16_t bgcnt, std::uint16_t bghofs, std::uint16_
                 int px = i * 2 + nibble;
                 if (!scanline_x && (px < (bghofs - (bghofs & ~7)))) continue;
 
-                uint8_t pallete_id = color_pallete ? tile[px] : pallete_bank | ((tile[i] >> (nibble * 4)) & 0x0F);
+                std::uint8_t pallete_id = color_pallete ? tile[px] : pallete_bank | ((tile[i] >> (nibble * 4)) & 0x0F);
                 m_frame[m_vcount][scanline_x++] = *reinterpret_cast<std::uint16_t*>(m_pallete_ram.data() + (pallete_id * 2));
             }
         }

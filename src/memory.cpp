@@ -170,6 +170,7 @@ void Memory::write_word(std::uint32_t addr, std::uint32_t value) {
             printf("[write] unmapped hardware register: %08X\n", addr);
             exit(1);
         }
+        return;
 
     pallete_ram_reg:
         *reinterpret_cast<std::uint32_t*>(m_ppu.m_pallete_ram.data() + ((addr - 0x05000000) & 0x3FF)) = value;
@@ -220,6 +221,7 @@ void Memory::write_halfword(std::uint32_t addr, std::uint16_t value) {
             printf("[write] unmapped hardware register: %08X\n", addr);
             std::exit(1);
         }
+        return;
 
     pallete_ram_reg:
         *reinterpret_cast<std::uint16_t*>(m_ppu.m_pallete_ram.data() + ((addr - 0x05000000) & 0x3FF)) = value;

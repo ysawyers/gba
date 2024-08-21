@@ -36,12 +36,13 @@ Registers& CPU::get_bank(std::uint8_t mode) {
 void CPU::change_bank(std::uint8_t new_mode) {
     get_bank(m_banked_regs[SYS].mode) = m_regs;
     switch (new_mode) {
+    case 0b10011:
+        m_regs.mode |= (static_cast<std::uint8_t>(m_thumb_enabled) << 5);
+    case 0b10000:
+    case 0b11111:
     case 0b11011:
     case 0b10111:
-    case 0b10011:
-    case 0b10010:
-    case 0b10000: 
-    case 0b11111: {
+    case 0b10010: {
         auto& bank = get_bank(new_mode);
         for (int i = 8; i < 15; i++) {
             m_regs[i] = bank[i];
@@ -62,18 +63,22 @@ void CPU::change_bank(std::uint8_t new_mode) {
     }
     default: std::unreachable();
     }
+    if (((m_banked_regs[SYS].mode & 0x1F) == 0b10011)) {
+        m_thumb_enabled = (m_regs.mode >> 5) & 1;
+        m_regs.mode &= 0x1F;
+    }
     m_banked_regs[SYS].mode = new_mode;
 }
 
 std::uint32_t CPU::get_psr() {
     std::uint8_t flags = (m_regs.flags.n << 3) | (m_regs.flags.z << 2) | (m_regs.flags.c << 1) | m_regs.flags.v;
-    return static_cast<std::uint32_t>(flags << 28) | m_regs.mode;
+    return static_cast<std::uint32_t>(flags << 28) | (static_cast<std::uint32_t>(m_thumb_enabled) << 5) | (m_regs.mode & 0x1F);
 }
 
 std::uint32_t CPU::get_cpsr() {
     auto& sys = (m_banked_regs[SYS].mode == 0x1F || m_banked_regs[SYS].mode == 0x10) ? m_regs : m_banked_regs[SYS];
     std::uint8_t flags = (sys.flags.n << 3) | (sys.flags.z << 2) | (sys.flags.c << 1) | sys.flags.v;
-    return static_cast<std::uint32_t>(flags << 28) | sys.mode;
+    return static_cast<std::uint32_t>(flags << 28) | (static_cast<std::uint32_t>(m_thumb_enabled) << 5) | sys.mode;
 }
 
 std::uint32_t CPU::ror(std::uint32_t operand, std::size_t shift_amount) {
@@ -305,7 +310,7 @@ int CPU::block_transfer(std::uint32_t instr) {
     std::uint8_t prev_mode = 0;
     if (s) {
         if (l && ((reg_list >> 15) & 1)) {
-            change_bank(m_regs.mode);
+            change_bank(m_regs.mode & 0x1F);
         } else {
             prev_mode = m_banked_regs[SYS].mode;
             change_bank(0x1F);
@@ -400,7 +405,7 @@ int CPU::msr(std::uint32_t instr) {
             if (m_banked_regs[SYS].mode == 0x1F || m_banked_regs[SYS].mode == 0x10) {
                 change_bank(mode);
             } else {
-                m_regs.mode = mode;
+                m_regs.mode = (m_regs.mode & ~0x1F) | mode;
             }
         }
     } else {
@@ -422,15 +427,13 @@ int CPU::msr(std::uint32_t instr) {
 }
 
 int CPU::swi(std::uint32_t instr) {
-    printf("swi");
-    std::exit(1);
-
-    change_bank(0b10011);
-    m_regs.flags = m_banked_regs[SYS].flags;
-    m_regs.mode = m_banked_regs[SYS].mode;
-    m_regs[14] = m_regs[15] - 4;
+    m_banked_regs[SVC].mode = m_banked_regs[SYS].mode;
+    m_banked_regs[SVC].flags = m_banked_regs[SYS].flags;
+    change_bank(0x13);
+    m_regs[14] = m_regs[15] - (m_thumb_enabled ? 2 : 4);
     m_regs[15] = 0x00000008;
     m_pipeline_invalid = true;
+    m_thumb_enabled = false;
     return 1;
 }
 
@@ -641,7 +644,7 @@ int CPU::alu(std::uint32_t instr) {
     }
 
     if ((rd == 0xF) && set_cc) [[unlikely]] {
-        change_bank(m_regs.mode);
+        change_bank(m_regs.mode & 0x1F);
     }
     return 1;
 }
@@ -894,6 +897,12 @@ std::uint32_t CPU::thumb_translate_16(std::uint16_t instr) {
     return translation;
 }
 
+std::uint32_t CPU::thumb_translate_17(std::uint16_t instr) {
+    std::uint32_t translation = 0b11101111000000000000000000000000;
+    translation |= (instr & 0xFF);
+    return translation;
+}
+
 std::uint32_t CPU::thumb_translate_18(std::uint16_t instr) {
     std::uint32_t translation = 0b11101010000000000000000000000000;
     std::uint32_t offset = static_cast<std::int32_t>((static_cast<std::int16_t>((instr & 0x7FF) << 5) >> 5));
@@ -906,7 +915,6 @@ int CPU::execute() {
         std::uint16_t instr = m_pipeline_invalid ? fetch_thumb() : m_pipeline;
         m_pipeline = fetch_thumb();
         m_pipeline_invalid = false;
-
         switch (m_thumb_lut[instr >> 6]) {
         case InstrFormat::THUMB_1: return alu(thumb_translate_1(instr));
         case InstrFormat::THUMB_2: return alu(thumb_translate_2(instr));
@@ -1002,10 +1010,7 @@ int CPU::execute() {
             }
             return 1;
         }
-        case InstrFormat::THUMB_17: {
-            printf("thumb 17\n");
-            std::exit(1);
-        }
+        case InstrFormat::THUMB_17: return swi(thumb_translate_17(instr));
         case InstrFormat::THUMB_18: return branch(thumb_translate_18(instr));
         case InstrFormat::THUMB_19_PREFIX: {
             std::uint32_t upper_half_offset = static_cast<std::int32_t>((instr & 0x7FF) << 21) >> 21;
@@ -1066,12 +1071,17 @@ void CPU::dump_state() {
     }
     printf("cpsr: %08X\n", get_cpsr());
     printf("psr: %08X\n", get_psr());
+    printf("thumb mode: %d\n", m_thumb_enabled);
 }
 
 std::array<std::array<std::uint16_t, 240>, 160>& CPU::render_frame(std::uint16_t key_input) {
     m_mem.m_key_input = key_input;
     int cycles = 0;
     while (cycles < CYCLES_PER_FRAME) {
+        if (cycles == 3) {
+            dump_state();
+            std::exit(1);
+        }
         int instr_cycles = execute();
         m_mem.tick_components(instr_cycles);
         cycles += instr_cycles;
