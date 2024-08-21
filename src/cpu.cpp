@@ -857,10 +857,8 @@ std::uint32_t CPU::thumb_translate_11(std::uint16_t instr) {
 
 std::uint32_t CPU::thumb_translate_13(std::uint16_t instr) {
     std::uint32_t translation = 0b11100010000011011101111100000000;
-    std::uint32_t nn = (instr & 0x7F);
-    bool is_signed = (instr >> 7) & 1;
-    translation |= (0x2 << (21 + is_signed));
-    translation |= nn;
+    translation |= (4 << (21 - ((instr >> 7) & 1)));
+    translation |= (instr & 0x7F);
     return translation;
 }
 
@@ -1076,12 +1074,16 @@ void CPU::dump_state() {
 
 std::array<std::array<std::uint16_t, 240>, 160>& CPU::render_frame(std::uint16_t key_input) {
     m_mem.m_key_input = key_input;
+    // int ganga = 0;
     int cycles = 0;
     while (cycles < CYCLES_PER_FRAME) {
-        if (cycles == 3) {
-            dump_state();
-            std::exit(1);
-        }
+        // if ((m_regs[15] == 0x08000310) || ganga) {
+        //     if (ganga == 13) {
+        //         dump_state();
+        //         std::exit(1);
+        //     }
+        //     ganga++;
+        // }
         int instr_cycles = execute();
         m_mem.tick_components(instr_cycles);
         cycles += instr_cycles;
