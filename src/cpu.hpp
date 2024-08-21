@@ -5,7 +5,11 @@
 #include <unordered_map>
 #include <map>
 
+#include "debugger.hpp"
+
 #include "memory.hpp"
+
+typedef std::array<std::array<std::uint16_t, 240>, 160>& FrameBuffer;
 
 // used as indices for banked registers in CPU
 enum Mode {
@@ -51,6 +55,8 @@ class CPU {
         CPU(const std::string&& rom_filepath);
 
         std::array<std::array<std::uint16_t, 240>, 160>& render_frame(std::uint16_t key_input);
+
+        friend class Debugger;
 
     private:
         enum class ShiftType {
@@ -114,7 +120,9 @@ class CPU {
         Registers& get_bank(std::uint8_t mode);
         void change_bank(std::uint8_t new_mode);
         void safe_reg_assign(std::uint8_t reg, std::uint32_t value);
-        void dump_state();
+
+        bool find_breakpoint(FrameBuffer frame, std::uint16_t key_input, std::uint32_t breakpoint);
+        void step();
 
         std::array<InstrFormat, 4096> m_arm_lut = ([]() constexpr -> auto {
             std::array<InstrFormat, 4096> lut{};

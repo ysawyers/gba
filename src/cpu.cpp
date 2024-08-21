@@ -152,6 +152,7 @@ bool CPU::barrel_shifter(
         return true;
     }
     case ShiftType::ROR:
+        // TODO: could we make this branchless?
         if (reg_imm_shift && !shift_amount) {
             carry_out = operand & 1;
             operand = (static_cast<std::uint32_t>(m_regs.flags.c) << 31) | (operand >> 1);
@@ -166,12 +167,8 @@ bool CPU::barrel_shifter(
 int CPU::branch(std::uint32_t instr) {
     bool bl = (instr >> 24) & 1;
     std::int32_t nn = (static_cast<std::int32_t>((instr & 0xFFFFFF) << 8) >> 8) << 2;
-    if (m_thumb_enabled) {
-        nn >>= 1;
-    }
-    if (bl) {
-        m_regs[14] = m_regs[15] - 4;
-    }
+    nn >>= m_thumb_enabled;
+    if (bl) m_regs[14] = m_regs[15] - 4;
     m_regs[15] += nn;
     m_pipeline_invalid = true;
     return 1;
@@ -1061,29 +1058,30 @@ int CPU::execute() {
     }
 }
 
-void CPU::dump_state() {
-    for (int i = 0; i < 16; i++) {
-        if (m_regs[i]) {
-            printf("%d: 0x%08X\n", i, m_regs[i]);
-        }
-    }
-    printf("cpsr: %08X\n", get_cpsr());
-    printf("psr: %08X\n", get_psr());
-    printf("thumb mode: %d\n", m_thumb_enabled);
+void CPU::step() {
+    m_mem.tick_components(execute());
 }
 
-std::array<std::array<std::uint16_t, 240>, 160>& CPU::render_frame(std::uint16_t key_input) {
+bool CPU::find_breakpoint(FrameBuffer frame, std::uint16_t key_input, std::uint32_t breakpoint) {
     m_mem.m_key_input = key_input;
-    // int ganga = 0;
     int cycles = 0;
     while (cycles < CYCLES_PER_FRAME) {
-        // if ((m_regs[15] == 0x08000310) || ganga) {
-        //     if (ganga == 13) {
-        //         dump_state();
-        //         std::exit(1);
-        //     }
-        //     ganga++;
-        // }
+        if (m_regs[15] == breakpoint) {
+            frame = m_mem.get_frame();
+            return true;
+        }
+        int instr_cycles = execute();
+        m_mem.tick_components(instr_cycles);
+        cycles += instr_cycles;
+    }
+    frame = m_mem.get_frame();
+    return false;
+}
+
+FrameBuffer CPU::render_frame(std::uint16_t key_input) {
+    m_mem.m_key_input = key_input;
+    int cycles = 0;
+    while (cycles < CYCLES_PER_FRAME) {
         int instr_cycles = execute();
         m_mem.tick_components(instr_cycles);
         cycles += instr_cycles;

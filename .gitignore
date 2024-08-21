@@ -13,3 +13,4 @@ CMakeUserPresets.json
 build
 .vscode
 roms/kirby.gba
+imgui.ini
