@@ -60,6 +60,7 @@ void Window::render_backdrop_window() {
         }
         if (ImGui::BeginMenu("Debug")) {
             ImGui::MenuItem("Open Debug Window");
+            ImGui::MenuItem("ImGui Demo", nullptr, &m_menu_bar.m_toggle_demo_window);
             ImGui::EndMenu();
         }
         m_menu_bar_height = ImGui::GetFrameHeight();
@@ -85,8 +86,41 @@ void Window::render_game_window() {
     const float x_offset = (window_size.x - (GBA_WIDTH * m_pixel_height)) / 2;
 
     // TODO: unsafe if opened without specifying ROM currently
-    FrameBuffer frame_buffer = m_cpu->render_frame(0xFFFF);
 
+    std::uint16_t key_input = 0xFFFF;
+    for (ImGuiKey key = static_cast<ImGuiKey>(0); key < ImGuiKey_NamedKey_END; key = static_cast<ImGuiKey>(key + 1)) {
+        if (!ImGui::IsKeyDown(key)) continue;
+
+        switch (key) {
+        case ImGuiKey_Q: // A
+            key_input = ~1 & key_input;
+            break;
+        case ImGuiKey_W: // B
+            key_input = ~(1 << 1) & key_input;
+            break;
+        case ImGuiKey_Backspace: // SELECT
+            key_input = ~(1 << 2) & key_input;
+            break;
+        case ImGuiKey_Enter: // START
+            key_input = ~(1 << 3) & key_input;
+            break;
+        case ImGuiKey_RightArrow:
+            key_input = ~(1 << 4) & key_input;
+            break;
+        case ImGuiKey_LeftArrow:
+            key_input = ~(1 << 5) & key_input;
+            break;
+        case ImGuiKey_UpArrow:
+            key_input = ~(1 << 6) & key_input;
+            break;
+        case ImGuiKey_DownArrow:
+            key_input = ~(1 << 7) & key_input;
+            break;
+        default: break;
+        }
+    }
+
+    FrameBuffer frame_buffer = m_cpu->render_frame(key_input);
     ImDrawList* draw_list = ImGui::GetWindowDrawList();
     for (int col = 0; col < GBA_HEIGHT; col++) {
         for (int row = 0; row < GBA_WIDTH; row++) {
@@ -137,6 +171,8 @@ void Window::open() {
 
         render_backdrop_window();
         render_game_window();
+        
+        if (m_menu_bar.m_toggle_demo_window) ImGui::ShowDemoWindow(&m_menu_bar.m_toggle_demo_window);
 
         ImGui::Render();
         SDL_RenderClear(renderer);
@@ -152,56 +188,3 @@ void Window::open() {
     SDL_DestroyWindow(window);
     SDL_Quit();
 }
-
-// ImGui::ShowDemoWindow(&running);
-
-// void Window::render_frame(std::uint16_t* frame_buffer) {
-    
-// }
-
-// void Window::emulate(const std::string&& rom_filepath) {
-//     CPU cpu(std::move(rom_filepath));
-    
-// }
-
-/*
-
-uint16_t key_input = 0xFFFF;
-        while(SDL_PollEvent(&event))
-        {
-            switch (event.type) {
-            case SDL_KEYDOWN: {
-                switch (event.key.keysym.sym) {
-                case SDLK_q: // A
-                    key_input = ~1 & key_input;
-                    break;
-                case SDLK_w: // B
-                    key_input = ~(1 << 1) & key_input;
-                    break;
-                case SDLK_RETURN: // START
-                    key_input = ~(1 << 3) & key_input;
-                    break;
-                case SDLK_BACKSPACE: // SELECT
-                    key_input = ~(1 << 2) & key_input;
-                    break;
-                case SDLK_RIGHT:
-                    key_input = ~(1 << 4) & key_input;
-                    break;
-                case SDLK_LEFT:
-                    key_input = ~(1 << 5) & key_input;
-                    break;
-                case SDLK_UP:
-                    key_input = ~(1 << 6) & key_input;
-                    break;
-                case SDLK_DOWN:
-                    key_input = ~(1 << 7) & key_input;
-                    break;
-                }
-                break;
-            }
-            case SDL_QUIT:
-                event_loop = false;
-                break;
-            }
-        
-*/

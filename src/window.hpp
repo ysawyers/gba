@@ -9,9 +9,12 @@
 #include <SDL.h>
 
 class Window {
-    struct MenuBarButtons {
-        bool m_toggle_file_explorer = false;
-        bool m_toggle_debug_panel = false;
+    struct MenuBar {
+        MenuBar() : m_toggle_debug_panel(false), m_toggle_demo_window(false), m_toggle_file_explorer(false) {};
+
+        bool m_toggle_debug_panel;
+        bool m_toggle_demo_window;
+        bool m_toggle_file_explorer;
     };
 
     public:
@@ -32,7 +35,7 @@ class Window {
         float m_menu_bar_height;
         float m_pixel_height;
 
-        MenuBarButtons m_buttons;
+        MenuBar m_menu_bar;
         std::shared_ptr<CPU> m_cpu;
 };
 
