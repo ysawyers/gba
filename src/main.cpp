@@ -14,11 +14,9 @@ int main(int argc, char* argv[]) {
 
         const std::string rom_filepath = po.get_value("r");
         if (!rom_filepath.empty()) {
-            printf("start game instantly\n");
-            std::exit(1);
+            window.initialize_gba(std::move(rom_filepath));
         }
-
-        window.open(std::move(rom_filepath));
+        window.open();
     } catch (const std::runtime_error& ex) {
         std::cerr << "error: " << ex.what() << "\n";
         return EXIT_FAILURE;

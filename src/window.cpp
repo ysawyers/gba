@@ -1,17 +1,13 @@
 #include "window.hpp"
 
-#include "cpu.hpp"
-
 #include "libs/imgui/imgui.h"
 #include "libs/imgui/imgui_impl_sdl2.h"
 #include "libs/imgui/imgui_impl_sdlrenderer2.h"
 
 #define RGB_VALUE(n) (((n) << 3) | ((n) >> 2))
 
-// constexpr std::uint32_t screen_height = 160;
-// constexpr std::uint32_t screen_width = 240;
-// constexpr std::uint32_t screen_pixels = screen_height * screen_width;
-// constexpr std::uint32_t screen_factor = 3;
+const int GBA_HEIGHT = 160;
+const int GBA_WIDTH = 240;
 
 void Window::sdl_initialize(SDL_Window** window, SDL_Renderer** renderer) {
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) != 0) {
@@ -43,7 +39,77 @@ void Window::sdl_initialize(SDL_Window** window, SDL_Renderer** renderer) {
     *renderer = sdl_renderer;
 }
 
-void Window::open(const std::string&& rom_filepath) {
+void Window::render_backdrop_window() {
+    const ImGuiWindowFlags flags = 
+        ImGuiWindowFlags_NoMove | 
+        ImGuiWindowFlags_NoTitleBar | 
+        ImGuiWindowFlags_NoCollapse | 
+        ImGuiWindowFlags_NoBringToFrontOnFocus | 
+        ImGuiWindowFlags_NoResize | 
+        ImGuiWindowFlags_MenuBar;
+
+    const ImGuiViewport* viewport = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(viewport->Pos);
+    ImGui::SetNextWindowSize(viewport->Size);
+
+    ImGui::Begin("#backdrop", nullptr, flags);
+    if (ImGui::BeginMenuBar()) {
+        if (ImGui::BeginMenu("File")) {
+            ImGui::MenuItem("Upload ROM");
+            ImGui::EndMenu();
+        }
+        if (ImGui::BeginMenu("Debug")) {
+            ImGui::MenuItem("Open Debug Window");
+            ImGui::EndMenu();
+        }
+        m_menu_bar_height = ImGui::GetFrameHeight();
+        ImGui::EndMenuBar();
+    }
+    ImGui::End();
+}
+
+void Window::render_game_window() {
+    const ImGuiWindowFlags flags = 
+        ImGuiWindowFlags_NoTitleBar |
+        ImGuiWindowFlags_NoMove |
+        ImGuiWindowFlags_NoCollapse | 
+        ImGuiWindowFlags_NoResize;
+
+    const ImGuiViewport* viewport = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(ImVec2(0, m_menu_bar_height));
+    ImGui::SetNextWindowSize(viewport->Size);
+    ImGui::Begin("#gamewindow", nullptr, flags);
+
+    const ImVec2 window_size = ImGui::GetWindowSize();
+    const float y_offset = (window_size.y - (GBA_HEIGHT * m_pixel_height)) / 2;
+    const float x_offset = (window_size.x - (GBA_WIDTH * m_pixel_height)) / 2;
+
+    // TODO: unsafe if opened without specifying ROM currently
+    FrameBuffer frame_buffer = m_cpu->render_frame(0xFFFF);
+
+    ImDrawList* draw_list = ImGui::GetWindowDrawList();
+    for (int col = 0; col < GBA_HEIGHT; col++) {
+        for (int row = 0; row < GBA_WIDTH; row++) {
+            auto x_pos = (row * m_pixel_height) + x_offset;
+            auto y_pos = (col * m_pixel_height) + y_offset;
+            draw_list->AddRectFilled(ImVec2(x_pos, y_pos), ImVec2(x_pos + m_pixel_height, y_pos + m_pixel_height), 
+                ImColor(
+                    RGB_VALUE(frame_buffer[col][row] & 0x1F), 
+                    RGB_VALUE((frame_buffer[col][row] >> 5) & 0x1F), 
+                    RGB_VALUE(((frame_buffer[col][row] >> 10) & 0x1F))
+                )
+            );
+        }
+    }
+
+    ImGui::End();
+}
+
+void Window::initialize_gba(const std::string&& rom_filepath) {
+    m_cpu = std::make_shared<CPU>(std::move(rom_filepath));
+}
+
+void Window::open() {
     SDL_Window* window = nullptr;
     SDL_Renderer* renderer = nullptr;
     sdl_initialize(&window, &renderer);
@@ -64,12 +130,13 @@ void Window::open(const std::string&& rom_filepath) {
             }
             ImGui_ImplSDL2_ProcessEvent(&e);
         }
- 
+
         ImGui_ImplSDLRenderer2_NewFrame();
         ImGui_ImplSDL2_NewFrame();
         ImGui::NewFrame();
 
-        ImGui::ShowDemoWindow(&running);
+        render_backdrop_window();
+        render_game_window();
 
         ImGui::Render();
         SDL_RenderClear(renderer);
@@ -85,6 +152,8 @@ void Window::open(const std::string&& rom_filepath) {
     SDL_DestroyWindow(window);
     SDL_Quit();
 }
+
+// ImGui::ShowDemoWindow(&running);
 
 // void Window::render_frame(std::uint16_t* frame_buffer) {
     
@@ -136,5 +205,3 @@ uint16_t key_input = 0xFFFF;
             }
         
 */
-
-// RGB_VALUE(frame_buffer[i] & 0x1F), RGB_VALUE((frame_buffer[i] >> 5) & 0x1F), RGB_VALUE(((frame_buffer[i] >> 10) & 0x1F))

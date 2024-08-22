@@ -649,8 +649,8 @@ static void ShowDemoWindowMenuBar(ImGuiDemoWindowData* demo_data)
     {
         if (ImGui::BeginMenu("Menu"))
         {
-            IMGUI_DEMO_MARKER("Menu/File");
-            ShowExampleMenuFile();
+            // IMGUI_DEMO_MARKER("Menu/File");
+            // ShowExampleMenuFile();
             ImGui::EndMenu();
         }
         if (ImGui::BeginMenu("Examples"))
