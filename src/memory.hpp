@@ -31,6 +31,7 @@ class Memory {
         void write_byte(std::uint32_t addr, std::uint8_t value);
 
         void tick_components(int cycles);
+        void reset_components();
 
         std::array<std::array<std::uint16_t, 240>, 160>& get_frame();
 

@@ -1,5 +1,6 @@
 #include "cpu.hpp"
 
+#include <algorithm>
 #include <iostream>
 #include <utility>
 
@@ -10,9 +11,12 @@ CPU::CPU(const std::string& rom_filepath)
 {
     m_mem.load_bios();
     m_mem.load_rom(rom_filepath);
-    m_banked_regs[SYS].mode = 0x1F;
-    m_regs.mode = 0x1F;
+    initialize_registers();
+}
 
+void CPU::initialize_registers() {
+    m_regs.mode = 0x1F;
+    m_banked_regs[SYS].mode = 0x1F;
     m_banked_regs[SVC][13] = 0x03007FE0;
     m_banked_regs[IRQ][13] = 0x03007FA0;
     m_regs[13] = 0x03007F00;
@@ -1056,30 +1060,32 @@ int CPU::execute() {
     }
 }
 
-void CPU::step() {
+void CPU::reset() {
+    m_banked_regs = std::array<Registers, 6>{};
+    m_regs = m_banked_regs[SYS];
+    m_pipeline = 0;
+    m_pipeline_invalid = true;
+    m_thumb_enabled = false;
+    initialize_registers();
+    m_mem.reset_components();
+}
+
+FrameBuffer CPU::step() {
     m_mem.tick_components(execute());
+    return m_mem.get_frame();
 }
 
-bool CPU::find_breakpoint(FrameBuffer frame, std::uint16_t key_input, std::uint32_t breakpoint) {
+FrameBuffer CPU::render_frame(std::uint16_t key_input, std::uint32_t breakpoint, bool& breakpoint_reached) {
     m_mem.m_key_input = key_input;
     int cycles = 0;
     while (cycles < CYCLES_PER_FRAME) {
-        if (m_regs[15] == breakpoint) {
-            frame = m_mem.get_frame();
-            return true;
+        if (breakpoint == m_regs[15]) [[unlikely]] {
+            breakpoint_reached = true;
+            printf("hit breakpoint");
+            std::exit(1);
+
+            return m_mem.get_frame();
         }
-        int instr_cycles = execute();
-        m_mem.tick_components(instr_cycles);
-        cycles += instr_cycles;
-    }
-    frame = m_mem.get_frame();
-    return false;
-}
-
-FrameBuffer CPU::render_frame(std::uint16_t key_input) {
-    m_mem.m_key_input = key_input;
-    int cycles = 0;
-    while (cycles < CYCLES_PER_FRAME) {
         int instr_cycles = execute();
         m_mem.tick_components(instr_cycles);
         cycles += instr_cycles;

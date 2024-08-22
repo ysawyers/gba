@@ -5,6 +5,7 @@
 #include <string>
 
 #include "cpu.hpp"
+#include "debugger.hpp"
 
 #include <SDL.h>
 
@@ -18,7 +19,7 @@ class Window {
     };
 
     public:
-        Window() : m_menu_bar_height(0), m_cpu(nullptr), m_inserted_rom("##NONE") {};
+        Window() : m_menu_bar_height(0), m_cpu(nullptr), m_inserted_rom("##NONE"), m_breakpoint(0xFFFFFFFF), m_breakpoint_reached(false) {};
 
         void open();
 
@@ -38,7 +39,10 @@ class Window {
 
         MenuBar m_menu_bar;
         std::shared_ptr<CPU> m_cpu;
+        std::unique_ptr<Debugger> m_debugger;
         std::string m_inserted_rom;
+        std::uint32_t m_breakpoint;
+        bool m_breakpoint_reached;
 };
 
 #endif

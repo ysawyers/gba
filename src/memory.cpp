@@ -314,6 +314,14 @@ void Memory::tick_components(int cycles) {
     m_ppu.tick(cycles);
 }
 
+void Memory::reset_components() {
+    m_ime = false;
+    m_key_input = 0;
+    m_ewram.clear();
+    m_iwram.clear();
+    m_ppu = {};
+}
+
 std::array<std::array<std::uint16_t, 240>, 160>& Memory::get_frame() {
     return m_ppu.m_frame;
 }

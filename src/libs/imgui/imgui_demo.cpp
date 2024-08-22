@@ -4352,15 +4352,15 @@ static void ShowDemoWindowLayout()
         if (child_w < 1.0f)
             child_w = 1.0f;
         ImGui::PushID("##VerticalScrolling");
-        for (int i = 0; i < 5; i++)
+        for (int i = 0; i < 1; i++)
         {
             if (i > 0) ImGui::SameLine();
-            ImGui::BeginGroup();
-            const char* names[] = { "Top", "25%", "Center", "75%", "Bottom" };
-            ImGui::TextUnformatted(names[i]);
+            // ImGui::BeginGroup();
+            // const char* names[] = { "Top", "25%", "Center", "75%", "Bottom" };
+            ImGui::TextUnformatted("Top");
 
             const ImGuiWindowFlags child_flags = enable_extra_decorations ? ImGuiWindowFlags_MenuBar : 0;
-            const ImGuiID child_id = ImGui::GetID((void*)(intptr_t)i);
+            const ImGuiID child_id = ImGui::GetID((void*)(intptr_t)6);
             const bool child_is_visible = ImGui::BeginChild(child_id, ImVec2(child_w, 200.0f), ImGuiChildFlags_Border, child_flags);
             if (ImGui::BeginMenuBar())
             {
@@ -4386,11 +4386,11 @@ static void ShowDemoWindowLayout()
                     }
                 }
             }
-            float scroll_y = ImGui::GetScrollY();
-            float scroll_max_y = ImGui::GetScrollMaxY();
+            // float scroll_y = ImGui::GetScrollY();
+            // float scroll_max_y = ImGui::GetScrollMaxY();
             ImGui::EndChild();
-            ImGui::Text("%.0f/%.0f", scroll_y, scroll_max_y);
-            ImGui::EndGroup();
+            // ImGui::Text("%.0f/%.0f", scroll_y, scroll_max_y);
+            // ImGui::EndGroup();
         }
         ImGui::PopID();
 
@@ -4408,7 +4408,7 @@ static void ShowDemoWindowLayout()
             float child_height = ImGui::GetTextLineHeight() + style.ScrollbarSize + style.WindowPadding.y * 2.0f;
             ImGuiWindowFlags child_flags = ImGuiWindowFlags_HorizontalScrollbar | (enable_extra_decorations ? ImGuiWindowFlags_AlwaysVerticalScrollbar : 0);
             ImGuiID child_id = ImGui::GetID((void*)(intptr_t)i);
-            bool child_is_visible = ImGui::BeginChild(child_id, ImVec2(-100, child_height), ImGuiChildFlags_Border, child_flags);
+            bool child_is_visible = ImGui::BeginChild(6, ImVec2(-100, child_height), ImGuiChildFlags_Border, child_flags);
             if (scroll_to_off)
                 ImGui::SetScrollX(scroll_to_off_px);
             if (scroll_to_pos)

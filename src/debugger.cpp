@@ -2,18 +2,15 @@
 
 #include "cpu.hpp"
 
-void Debugger::translate_arm(Instr& instr) {
-
+Registers& Debugger::view_registers(const std::shared_ptr<CPU> cpu) {
+    return cpu->m_regs;
 }
 
-void Debugger::translate_thumb(Instr& instr) {
+std::span<Debugger::Instr> Debugger::view_instructions(const std::shared_ptr<CPU> cpu) {
+    if ((cpu->m_thumb_enabled == m_decompiled_thumb) && !m_decompiled_instr_cache.empty()) {
+        return std::span(m_decompiled_instr_cache);
+    }
 
-}
-
-Registers& Debugger::view_registers() {
-    return m_cpu.m_regs;
-}
-
-bool Debugger::thumb_enabled() {
-    return m_cpu.m_thumb_enabled;
+    printf("get list\n");
+    std::exit(1);
 }
