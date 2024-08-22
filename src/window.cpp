@@ -1,5 +1,7 @@
 #include "window.hpp"
 
+#include <filesystem>
+
 #include "libs/imgui/imgui.h"
 #include "libs/imgui/imgui_impl_sdl2.h"
 #include "libs/imgui/imgui_impl_sdlrenderer2.h"
@@ -8,6 +10,11 @@
 
 const int GBA_HEIGHT = 160;
 const int GBA_WIDTH = 240;
+
+void Window::initialize_gba(const std::string&& rom_filepath) {
+    m_inserted_rom = std::filesystem::path(rom_filepath).filename();
+    m_cpu = std::make_shared<CPU>(rom_filepath);
+}
 
 void Window::sdl_initialize(SDL_Window** window, SDL_Renderer** renderer) {
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) != 0) {
@@ -59,7 +66,7 @@ void Window::render_backdrop_window() {
             ImGui::EndMenu();
         }
         if (ImGui::BeginMenu("Debug")) {
-            ImGui::MenuItem("Open Debug Window");
+            ImGui::MenuItem("Debug Panel", nullptr, &m_menu_bar.m_toggle_debug_panel);
             ImGui::MenuItem("ImGui Demo", nullptr, &m_menu_bar.m_toggle_demo_window);
             ImGui::EndMenu();
         }
@@ -71,26 +78,23 @@ void Window::render_backdrop_window() {
 
 void Window::render_game_window() {
     const ImGuiWindowFlags flags = 
-        ImGuiWindowFlags_NoTitleBar |
+        ImGuiWindowFlags_NoTitleBar | 
         ImGuiWindowFlags_NoMove |
         ImGuiWindowFlags_NoCollapse | 
         ImGuiWindowFlags_NoResize;
 
     const ImGuiViewport* viewport = ImGui::GetMainViewport();
+    const float game_window_width = m_menu_bar.m_toggle_debug_panel ? (3 * GBA_WIDTH)
+        : viewport->Size.x;
     ImGui::SetNextWindowPos(ImVec2(0, m_menu_bar_height));
-    ImGui::SetNextWindowSize(viewport->Size);
-    ImGui::Begin("#gamewindow", nullptr, flags);
-
-    const ImVec2 window_size = ImGui::GetWindowSize();
-    const float y_offset = (window_size.y - (GBA_HEIGHT * m_pixel_height)) / 2;
-    const float x_offset = (window_size.x - (GBA_WIDTH * m_pixel_height)) / 2;
+    ImGui::SetNextWindowSize(ImVec2(game_window_width, viewport->Size.y));
+    ImGui::Begin(m_inserted_rom.c_str(), nullptr, flags);
 
     // TODO: unsafe if opened without specifying ROM currently
 
     std::uint16_t key_input = 0xFFFF;
     for (ImGuiKey key = static_cast<ImGuiKey>(0); key < ImGuiKey_NamedKey_END; key = static_cast<ImGuiKey>(key + 1)) {
         if (!ImGui::IsKeyDown(key)) continue;
-
         switch (key) {
         case ImGuiKey_Q: // A
             key_input = ~1 & key_input;
@@ -120,13 +124,18 @@ void Window::render_game_window() {
         }
     }
 
+    const ImVec2 window_size = ImGui::GetWindowSize();
+    const float pixel_size = m_menu_bar.m_toggle_debug_panel ? 3 : 3.5;
+    const float y_offset = ((window_size.y - (GBA_HEIGHT * pixel_size)) / 2);
+    const float x_offset = ((window_size.x - (GBA_WIDTH * pixel_size)) / 2) * !m_menu_bar.m_toggle_debug_panel;
+
     FrameBuffer frame_buffer = m_cpu->render_frame(key_input);
     ImDrawList* draw_list = ImGui::GetWindowDrawList();
     for (int col = 0; col < GBA_HEIGHT; col++) {
         for (int row = 0; row < GBA_WIDTH; row++) {
-            auto x_pos = (row * m_pixel_height) + x_offset;
-            auto y_pos = (col * m_pixel_height) + y_offset;
-            draw_list->AddRectFilled(ImVec2(x_pos, y_pos), ImVec2(x_pos + m_pixel_height, y_pos + m_pixel_height), 
+            auto x_pos = (row * pixel_size) + x_offset;
+            auto y_pos = (col * pixel_size) + y_offset;
+            draw_list->AddRectFilled(ImVec2(x_pos, y_pos), ImVec2(x_pos + pixel_size, y_pos + pixel_size), 
                 ImColor(
                     RGB_VALUE(frame_buffer[col][row] & 0x1F), 
                     RGB_VALUE((frame_buffer[col][row] >> 5) & 0x1F), 
@@ -139,8 +148,19 @@ void Window::render_game_window() {
     ImGui::End();
 }
 
-void Window::initialize_gba(const std::string&& rom_filepath) {
-    m_cpu = std::make_shared<CPU>(std::move(rom_filepath));
+void Window::render_debug_window() {
+    const ImGuiWindowFlags flags = 
+        ImGuiWindowFlags_NoMove | 
+        ImGuiWindowFlags_NoCollapse | 
+        ImGuiWindowFlags_NoResize;
+
+    const int game_window_width = (3 * GBA_WIDTH);
+    const ImGuiViewport* viewport = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(ImVec2(game_window_width, m_menu_bar_height));
+    ImGui::SetNextWindowSize(ImVec2(viewport->Size.x - game_window_width, viewport->Size.y));
+    ImGui::Begin("Debug Panel", &m_menu_bar.m_toggle_debug_panel, flags);
+
+    ImGui::End();
 }
 
 void Window::open() {
@@ -171,7 +191,8 @@ void Window::open() {
 
         render_backdrop_window();
         render_game_window();
-        
+
+        if (m_menu_bar.m_toggle_debug_panel) render_debug_window();
         if (m_menu_bar.m_toggle_demo_window) ImGui::ShowDemoWindow(&m_menu_bar.m_toggle_demo_window);
 
         ImGui::Render();

@@ -5,11 +5,11 @@
 
 static const int CYCLES_PER_FRAME = 280896;
 
-CPU::CPU(const std::string&& rom_filepath) 
+CPU::CPU(const std::string& rom_filepath) 
     : m_pipeline(0), m_pipeline_invalid(true), m_thumb_enabled(false) 
 {
     m_mem.load_bios();
-    m_mem.load_rom(std::move(rom_filepath));
+    m_mem.load_rom(rom_filepath);
     m_banked_regs[SYS].mode = 0x1F;
     m_regs.mode = 0x1F;
 
@@ -320,7 +320,7 @@ int CPU::block_transfer(std::uint32_t instr) {
             m_pipeline_invalid = true;
         } else {
             std::uint32_t addr = u ? transfer_base_addr + (p * 4) : ((transfer_base_addr + (16 * direction)) + (!p * 4));
-            m_mem.write_word(addr, m_regs[15] + (m_thumb_enabled ? 2 : 4));
+            m_mem.write_word(addr, m_regs[15] + (4 >> m_thumb_enabled));
         }
         m_regs[rn] += (16 * direction);
         return 1;
@@ -348,14 +348,13 @@ int CPU::block_transfer(std::uint32_t instr) {
             }
     } else {
         std::uint32_t transfer_base_addr_copy = transfer_base_addr;
-        std::uint32_t pc_offset = m_thumb_enabled ? 2 : 4;
         for (int i = reg_start; i != reg_end; i += step)
             if ((reg_list >> i) & 1) {
                 std::uint32_t addr = transfer_base_addr + (p * direction);
                 if ((first_transfer == i) && (i == rn)) {
                     m_mem.write_word(addr, transfer_base_addr_copy);
                 } else {
-                    m_mem.write_word(addr, m_regs[i] + ((i == 0xF) * pc_offset));
+                    m_mem.write_word(addr, m_regs[i] + ((i == 0xF) * (4 >> m_thumb_enabled)));
                 }
                 transfer_base_addr += direction;
             }
@@ -427,7 +426,7 @@ int CPU::swi(std::uint32_t instr) {
     m_banked_regs[SVC].mode = m_banked_regs[SYS].mode;
     m_banked_regs[SVC].flags = m_banked_regs[SYS].flags;
     change_bank(0x13);
-    m_regs[14] = m_regs[15] - (m_thumb_enabled ? 2 : 4);
+    m_regs[14] = m_regs[15] - (4 >> m_thumb_enabled);
     m_regs[15] = 0x00000008;
     m_pipeline_invalid = true;
     m_thumb_enabled = false;
@@ -476,9 +475,8 @@ int CPU::alu(std::uint32_t instr) {
 
         operand_2 = m_regs[rm];
         if (r) {
-            std::uint32_t pc_offset = m_thumb_enabled ? 2 : 4;
-            if (rn == 0xF) operand_1 = m_regs[15] + pc_offset;
-            if (rm == 0xF) operand_2 = m_regs[15] + pc_offset;
+            if (rn == 0xF) operand_1 = m_regs[15] + (4 >> m_thumb_enabled);
+            if (rm == 0xF) operand_2 = m_regs[15] + (4 >> m_thumb_enabled);
             std::uint8_t shift_amount = m_regs[(instr >> 8) & 0xF] & 0xFF;
             if (shift_amount) {
                 carry_out_modify = barrel_shifter(operand_2, carry_out, shift_type, shift_amount, false);

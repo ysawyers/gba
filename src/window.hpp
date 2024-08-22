@@ -18,7 +18,7 @@ class Window {
     };
 
     public:
-        Window() : m_menu_bar_height(0), m_pixel_height(3.5), m_cpu(nullptr) {};
+        Window() : m_menu_bar_height(0), m_cpu(nullptr), m_inserted_rom("##NONE") {};
 
         void open();
 
@@ -32,11 +32,13 @@ class Window {
 
         void render_game_window();
 
+        void render_debug_window();
+
         float m_menu_bar_height;
-        float m_pixel_height;
 
         MenuBar m_menu_bar;
         std::shared_ptr<CPU> m_cpu;
+        std::string m_inserted_rom;
 };
 
 #endif

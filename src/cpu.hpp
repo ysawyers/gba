@@ -52,7 +52,7 @@ class Registers {
 
 class CPU {
     public:
-        CPU(const std::string&& rom_filepath);
+        CPU(const std::string& rom_filepath);
 
         std::array<std::array<std::uint16_t, 240>, 160>& render_frame(std::uint16_t key_input);
 

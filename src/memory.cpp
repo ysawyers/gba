@@ -17,7 +17,7 @@ void Memory::load_bios() {
     fclose(fp);
 }
 
-void Memory::load_rom(const std::string&& rom_filepath) {
+void Memory::load_rom(const std::string& rom_filepath) {
     FILE *fp = fopen(rom_filepath.c_str(), "rb");
     if (fp == NULL) {
         throw std::runtime_error("failed to open " + rom_filepath);

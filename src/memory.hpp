@@ -16,7 +16,7 @@ class Memory {
         }
 
         void load_bios();
-        void load_rom(const std::string&& rom_filepath);
+        void load_rom(const std::string& rom_filepath);
     
         std::uint32_t read_word(std::uint32_t addr);
 
