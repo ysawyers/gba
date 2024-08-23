@@ -1070,8 +1070,11 @@ void CPU::reset() {
     m_mem.reset_components();
 }
 
-FrameBuffer CPU::step() {
+void CPU::step() {
     m_mem.tick_components(execute());
+}
+
+FrameBuffer CPU::view_current_frame() {
     return m_mem.get_frame();
 }
 

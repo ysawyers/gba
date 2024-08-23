@@ -55,7 +55,8 @@ class CPU {
         CPU(const std::string& rom_filepath);
 
         FrameBuffer render_frame(std::uint16_t key_input, std::uint32_t breakpoint, bool& breakpoint_reached);
-        FrameBuffer step();
+        FrameBuffer view_current_frame();
+        void step();
 
         void reset();
 

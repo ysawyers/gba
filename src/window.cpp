@@ -16,7 +16,7 @@ const int GBA_WIDTH = 240;
 void Window::initialize_gba(const std::string&& rom_filepath) {
     m_inserted_rom = std::filesystem::path(rom_filepath).filename();
     m_cpu = std::make_shared<CPU>(rom_filepath);
-    m_debugger = std::make_unique<Debugger>();
+    m_debugger = std::make_unique<Debugger>(m_cpu);
 }
 
 void Window::sdl_initialize(SDL_Window** window, SDL_Renderer** renderer) {
@@ -62,7 +62,7 @@ void Window::render_backdrop_window() {
     ImGui::SetNextWindowPos(viewport->Pos);
     ImGui::SetNextWindowSize(viewport->Size);
 
-    ImGui::Begin("#backdrop", nullptr, flags);
+    ImGui::Begin("##BACKGROUND_WINDOW", nullptr, flags);
     if (ImGui::BeginMenuBar()) {
         if (ImGui::BeginMenu("File")) {
             ImGui::MenuItem("Upload ROM");
@@ -91,7 +91,7 @@ void Window::render_game_window() {
         : viewport->Size.x;
     ImGui::SetNextWindowPos(ImVec2(0, m_menu_bar_height));
     ImGui::SetNextWindowSize(ImVec2(game_window_width, viewport->Size.y));
-    ImGui::Begin(m_inserted_rom.c_str(), nullptr, flags);
+    ImGui::Begin("##GAME_WINDOW", nullptr, flags);
 
     // TODO: unsafe if opened without specifying ROM currently
 
@@ -132,7 +132,7 @@ void Window::render_game_window() {
     const float y_offset = ((window_size.y - (GBA_HEIGHT * pixel_size)) / 2);
     const float x_offset = ((window_size.x - (GBA_WIDTH * pixel_size)) / 2) * !m_menu_bar.m_toggle_debug_panel;
 
-    FrameBuffer frame_buffer = m_breakpoint_reached ? m_cpu->step() : m_cpu->render_frame(key_input, m_breakpoint, m_breakpoint_reached);
+    FrameBuffer frame_buffer = m_breakpoint_reached ? m_cpu->view_current_frame() : m_cpu->render_frame(key_input, m_breakpoint, m_breakpoint_reached);
     ImDrawList* draw_list = ImGui::GetWindowDrawList();
     for (int col = 0; col < GBA_HEIGHT; col++) {
         for (int row = 0; row < GBA_WIDTH; row++) {
@@ -151,11 +151,6 @@ void Window::render_game_window() {
     ImGui::End();
 }
 
-// if (scroll_to_off)
-//     ImGui::SetScrollY(scroll_to_off_px);
-// if (scroll_to_pos)
-//     ImGui::SetScrollFromPosY(ImGui::GetCursorStartPos().y + scroll_to_pos_px, i * 0.25f);
-
 void Window::render_debug_window() {
     const ImGuiWindowFlags flags = 
         ImGuiWindowFlags_NoMove | 
@@ -169,19 +164,28 @@ void Window::render_debug_window() {
     ImGui::Begin("Debug Panel", &m_menu_bar.m_toggle_debug_panel, flags);
 
     if (ImGui::BeginChild(ImGui::GetID("instr_view"), ImVec2(-1, 200), ImGuiChildFlags_Border)) {
-        auto instructions = m_debugger->view_instructions(m_cpu);
-        for (int i = 0; i < instructions.size(); i++) {
-
+        auto instrs = m_debugger->view_nearby_instructions();
+        for (const auto& instr : instrs) {
+            if (m_debugger->view_registers()[15] == instr.addr) {
+                ImGui::TextColored(ImVec4(1, 1, 0, 1), "> %08X %08X", instr.addr, instr.opcode);
+                ImGui::SetScrollHereY(0.5f);
+            } else {
+                ImGui::Text("%08X %08X", instr.addr, instr.opcode);
+            }
         }
     }
 
     ImGui::EndChild();
-    
+
     if (ImGui::Button("Set Breakpoint"))
     {
         //... my_code
     }
-    
+
+    if (m_breakpoint_reached && ImGui::Button("Step")) {
+        m_cpu->step();
+    }
+
     ImGui::End();
 }
 

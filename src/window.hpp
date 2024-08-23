@@ -28,6 +28,8 @@ class Window {
     private:
         void sdl_initialize(SDL_Window** window, SDL_Renderer** renderer);
 
+        void draw_frame_buffer(FrameBuffer frame_buffer);
+
         //! initializes menu bar height member
         void render_backdrop_window();
 
