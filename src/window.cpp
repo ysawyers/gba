@@ -181,9 +181,31 @@ void Window::render_debug_window() {
     {
         //... my_code
     }
-
+    ImGui::SameLine();
     if (m_breakpoint_reached && ImGui::Button("Step")) {
         m_cpu->step();
+    }
+
+    ImGui::Dummy(ImVec2(0, 40));
+
+    if (ImGui::BeginTable("registers", 2)) {
+        auto& regs = m_debugger->view_registers();
+        for (int row = 0; row < 8; row++) {
+            ImGui::TableNextRow();
+            for (int col = 0; col < 2; col++) {
+                auto reg = (8 * col) + row;
+                ImGui::TableSetColumnIndex(col);
+                ImGui::Text("r%d: 0x%08X", reg, regs[reg]);
+            }
+        }
+
+        ImGui::TableNextRow();
+        ImGui::TableSetColumnIndex(0);
+        ImGui::Text("cpsr"); // TODO
+        ImGui::TableSetColumnIndex(1);
+        ImGui::Text("psr"); // TODO
+
+        ImGui::EndTable();
     }
 
     ImGui::End();
