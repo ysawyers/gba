@@ -20,7 +20,7 @@ class Debugger {
         };
 
         Registers& view_registers();
-        std::array<Instr, 32> view_nearby_instructions();
+        std::array<Instr, 64> view_nearby_instructions();
 
     private:
         void decompile_arm_instr(Instr& instr);

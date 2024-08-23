@@ -1,6 +1,7 @@
 #include "window.hpp"
 
 #include <filesystem>
+#include <string>
 
 #include "debugger.hpp"
 
@@ -163,7 +164,7 @@ void Window::render_debug_window() {
     ImGui::SetNextWindowSize(ImVec2(viewport->Size.x - game_window_width, viewport->Size.y));
     ImGui::Begin("Debug Panel", &m_menu_bar.m_toggle_debug_panel, flags);
 
-    if (ImGui::BeginChild(ImGui::GetID("instr_view"), ImVec2(-1, 200), ImGuiChildFlags_Border)) {
+    if (ImGui::BeginChild(ImGui::GetID("instr_view"), ImVec2(-1, 250), ImGuiChildFlags_Border)) {
         auto instrs = m_debugger->view_nearby_instructions();
         for (const auto& instr : instrs) {
             if (m_debugger->view_registers()[15] == instr.addr) {
@@ -174,19 +175,25 @@ void Window::render_debug_window() {
             }
         }
     }
-
     ImGui::EndChild();
 
-    if (ImGui::Button("Set Breakpoint"))
-    {
-        //... my_code
+    ImGui::Spacing();
+    if (ImGui::Button("Set Breakpoint")) {
+        ImGui::OpenPopup("Set Breakpoint");
+    }
+    render_breakpoint_modal();
+    ImGui::SameLine();
+    if (ImGui::Button("Stop")) {
+        m_breakpoint_reached = true;
     }
     ImGui::SameLine();
+    if (m_breakpoint_reached && ImGui::Button("Resume")) {
+        m_breakpoint_reached = false;
+    }
     if (m_breakpoint_reached && ImGui::Button("Step")) {
         m_cpu->step();
     }
-
-    ImGui::Dummy(ImVec2(0, 40));
+    ImGui::Spacing();
 
     if (ImGui::BeginTable("registers", 2)) {
         auto& regs = m_debugger->view_registers();
@@ -209,6 +216,30 @@ void Window::render_debug_window() {
     }
 
     ImGui::End();
+}
+
+void Window::render_breakpoint_modal() {
+    ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5, 0.5));
+
+    if (ImGui::BeginPopupModal("Set Breakpoint", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        static char input[128] = "";
+        ImGui::InputTextWithHint("##BREAKPOINT_TEXT_INPUT", "0xXXXXXXXX", input, 128);
+        ImGui::Spacing();
+        if (ImGui::Button("Set", ImVec2(60, 0))) {
+            std::uint32_t breakpoint = std::stoul(std::string(input), nullptr, 16);
+            m_breakpoint = breakpoint;
+            m_breakpoint_reached = false;
+            m_cpu->reset();
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SetItemDefaultFocus();
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", ImVec2(60, 0))) {
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
 }
 
 void Window::open() {

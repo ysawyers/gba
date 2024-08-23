@@ -1084,9 +1084,6 @@ FrameBuffer CPU::render_frame(std::uint16_t key_input, std::uint32_t breakpoint,
     while (cycles < CYCLES_PER_FRAME) {
         if (breakpoint == m_regs[15]) [[unlikely]] {
             breakpoint_reached = true;
-            printf("hit breakpoint");
-            std::exit(1);
-
             return m_mem.get_frame();
         }
         int instr_cycles = execute();

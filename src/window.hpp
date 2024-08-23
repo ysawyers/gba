@@ -37,6 +37,8 @@ class Window {
 
         void render_debug_window();
 
+        void render_breakpoint_modal();
+
         float m_menu_bar_height;
 
         MenuBar m_menu_bar;

@@ -19,8 +19,8 @@ void Debugger::decompile_thumb_instr(Instr& instr) {
     }
 }
 
-std::array<Debugger::Instr, 32> Debugger::view_nearby_instructions() {
-    std::array<Debugger::Instr, 32> instrs;
+std::array<Debugger::Instr, 64> Debugger::view_nearby_instructions() {
+    std::array<Debugger::Instr, 64> instrs;
 
     std::uint32_t num_instrs = ((instrs.size() / 2) * (4 >> m_cpu->m_thumb_enabled));
     std::uint32_t start = m_cpu->m_regs[15] - num_instrs;
