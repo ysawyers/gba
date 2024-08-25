@@ -70,7 +70,33 @@ const char* Debugger::swi_subroutine(std::uint32_t nn) {
     case 0xE: return "BgAffineSet";
     case 0xF: return "ObjAffineSet";
     case 0x10: return "BitUnPack";
-    default: return "Unknown";
+    case 0x11: return "LZ77UnCompReadNormalWrite8bit; Wram";
+    case 0x12: return "LZ77UnCompReadNormalWrite16bit; Vram";
+    case 0x13: return "HuffUnCompReadNormal";
+    case 0x14: return "RLUnCompReadNormalWrite8bit; Wram";
+    case 0x15: return "RLUnCompReadNormalWrite16bit; Vram";
+    case 0x16: return "Diff8bitUnFilterWrite8bit; Wram";
+    case 0x17: return "Diff8bitUnFilterWrite16bit; Vram";
+    case 0x18: return "Diff16bitUnFilter";
+    case 0x19: return "SoundBias";
+    case 0x1A: return "SoundDriverInit";
+    case 0x1B: return "SoundDriverMode";
+    case 0x1C: return "SoundDriverMain";
+    case 0x1D: return "SoundDriverVSync";
+    case 0x1E: return "SoundChannelClear";
+    case 0x1F: return "MidiKey2Freq";
+    case 0x20: return "SoundWhatever0";
+    case 0x21: return "SoundWhatever1";
+    case 0x22: return "SoundWhatever2";
+    case 0x23: return "SoundWhatever3";
+    case 0x24: return "SoundWhatever4";
+    case 0x25: return "MultiBoot";
+    case 0x26: return "HardReset";
+    case 0x27: return "CustomHalt";
+    case 0x28: return "SoundDriverVSyncOff";
+    case 0x29: return "SoundDriverVSyncOn";
+    case 0x2A: return "SoundGetJumpList";
+    default: std::unreachable();
     }
 }
 
@@ -92,17 +118,85 @@ void Debugger::decompile_arm_instr(Instr& instr) {
             l ? "L" : "", cond, m_cpu->m_regs[rn] & ~2);
         break;
     }
-    // case CPU::InstrFormat::ALU: {
-    //     std::uint8_t rd = (instr.opcode >> 12) & 0xF;
-    //     std::uint8_t rn = (instr.opcode >> 16) & 0xF;
+    case CPU::InstrFormat::ALU: {
+        const char* set_cc = ((instr.opcode >> 20) & 1) ? "S" : "";
+        std::uint8_t rd = (instr.opcode >> 12) & 0xF;
+        std::uint8_t rn = (instr.opcode >> 16) & 0xF;
 
-    //     switch ((instr.opcode >> 21) & 0xF) {
-    //     default:
-    //         printf("unhandled %02X\n", (instr.opcode >> 21) & 0xF);
-    //         std::exit(1);
-    //     }
-    //     break;
-    // }
+        std::uint32_t op1 = 0;
+        std::uint32_t op2 = 0;
+        bool carry = false;
+        m_cpu->get_alu_operands(instr.opcode, op1, op2, carry);
+
+        switch ((instr.opcode >> 21) & 0xF) {
+        case 0x0:
+            instr.desc = std::format("AND{}{} r{},r{},0x{:08X}",
+                cond, set_cc, rd, rn, op2);
+            break;
+        case 0x1:
+            instr.desc = std::format("EOR{}{} r{},r{},0x{:08X}",
+                cond, set_cc, rd, rn, op2);
+            break;
+        case 0x2:
+            instr.desc = std::format("SUB{}{} r{},r{},0x{:08X}",
+                cond, set_cc, rd, rn, op2);
+            break;
+        case 0x3:
+            instr.desc = std::format("RSB{}{} r{},r{},0x{:08X}",
+                cond, set_cc, rd, rn, op2);
+            break;
+        case 0x4:
+            instr.desc = std::format("ADD{}{} r{},r{},0x{:08X}",
+                cond, set_cc, rd, rn, op2);
+            break;
+        case 0x5:
+            instr.desc = std::format("ADC{}{} r{},r{},0x{:08X}",
+                cond, set_cc, rd, rn, op2);
+            break;
+        case 0x6:
+            instr.desc = std::format("SBC{}{} r{},r{},0x{:08X}",
+                cond, set_cc, rd, rn, op2);
+            break;
+        case 0x7:
+            instr.desc = std::format("RSC{}{} r{},r{},0x{:08X}",
+                cond, set_cc, rd, rn, op2);
+            break;
+        case 0x8:
+            instr.desc = std::format("TST{} r{},0x{:08X}",
+                cond, rn, op2);
+            break;
+        case 0x9:
+            instr.desc = std::format("TEQ{} r{},0x{:08X}",
+                cond, rn, op2);
+            break;
+        case 0xA:
+            instr.desc = std::format("CMP{} r{},0x{:08X}",
+                cond, rn, op2);
+            break;
+        case 0xB:
+            instr.desc = std::format("CMN{} r{},0x{:08X}",
+                cond, rn, op2);
+            break;
+        case 0xC:
+            instr.desc = std::format("ORR{}{} r{},r{},0x{:08X}",
+                cond, set_cc, rd, rn, op2);
+            break;
+        case 0xD:
+            instr.desc = std::format("MOV{}{} r{},0x{:08X}",
+                cond, set_cc, rd, op2);
+            break;
+        case 0xE:
+            instr.desc = std::format("BIC{}{} r{},r{},0x{:08X}",
+                cond, set_cc, rd, rn, op2);
+            break;
+        case 0xF:
+            instr.desc = std::format("MVN{}{} r{},0x{:08X}",
+                cond, set_cc, rd, op2);
+            break;
+        default: std::unreachable();
+        }
+        break;
+    }
     default: break;
     }
 }
