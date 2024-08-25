@@ -19,21 +19,17 @@ class Memory {
         void load_rom(const std::string& rom_filepath);
     
         std::uint32_t read_word(std::uint32_t addr);
-
         std::uint16_t read_halfword(std::uint32_t addr);
-
         std::uint8_t read_byte(std::uint32_t addr);
 
         void write_word(std::uint32_t addr, std::uint32_t value);
-
         void write_halfword(std::uint32_t addr, std::uint16_t value);
-
         void write_byte(std::uint32_t addr, std::uint8_t value);
 
         void tick_components(int cycles);
         void reset_components();
 
-        std::array<std::array<std::uint16_t, 240>, 160>& get_frame();
+        FrameBuffer& get_frame();
 
         std::uint16_t m_key_input;
 

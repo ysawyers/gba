@@ -9,8 +9,6 @@
 
 #include "memory.hpp"
 
-typedef std::array<std::array<std::uint16_t, 240>, 160>& FrameBuffer;
-
 // used as indices for banked registers in CPU
 enum Mode {
     SYS = 0, FIQ, SVC, ABT, IRQ, UND, UNSET
@@ -47,15 +45,15 @@ class Registers {
         std::uint8_t mode;
 
     private:
-        std::array<std::uint32_t, 16> m_list;
+        std::array<std::uint32_t, 16> m_list{};
 };
 
 class CPU {
     public:
         CPU(const std::string& rom_filepath);
 
-        FrameBuffer render_frame(std::uint16_t key_input, std::uint32_t breakpoint, bool& breakpoint_reached);
-        FrameBuffer view_current_frame();
+        FrameBuffer& render_frame(std::uint16_t key_input, std::uint32_t breakpoint, bool& breakpoint_reached);
+        FrameBuffer& view_current_frame();
         void step();
 
         void reset();
@@ -81,11 +79,18 @@ class CPU {
         int execute();
 
         bool barrel_shifter(
-            std::uint32_t& operand,
+            std::uint32_t& op,
             bool& carry_out,
             ShiftType shift_type,
             std::uint8_t shift_amount, 
             bool reg_imm_shift
+        );
+
+        void get_alu_operands(
+            std::uint32_t instr, 
+            std::uint32_t& op1, 
+            std::uint32_t& op2, 
+            bool& carry_out
         );
 
         bool condition(std::uint32_t instr);

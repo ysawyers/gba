@@ -322,6 +322,6 @@ void Memory::reset_components() {
     m_ppu = {};
 }
 
-std::array<std::array<std::uint16_t, 240>, 160>& Memory::get_frame() {
+FrameBuffer& Memory::get_frame() {
     return m_ppu.m_frame;
 }

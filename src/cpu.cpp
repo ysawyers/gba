@@ -42,11 +42,11 @@ void CPU::change_bank(std::uint8_t new_mode) {
     switch (new_mode) {
     case 0b10011:
         m_regs.mode |= (static_cast<std::uint8_t>(m_thumb_enabled) << 5);
+    case 0b10010:
     case 0b10000:
     case 0b11111:
     case 0b11011:
-    case 0b10111:
-    case 0b10010: {
+    case 0b10111: {
         auto& bank = get_bank(new_mode);
         for (int i = 8; i < 15; i++) {
             m_regs[i] = bank[i];
@@ -138,25 +138,25 @@ bool CPU::barrel_shifter(
     switch (shift_type) {
     case ShiftType::LSL: {
         bool nonzero_shift = shift_amount != 0;
-        carry_out = (operand >> (nonzero_shift * (32 - (shift_amount | !nonzero_shift)))) & 1;
+        bool computed_carry = (operand >> (nonzero_shift * (32 - (shift_amount | !nonzero_shift)))) & 1;
+        carry_out = (nonzero_shift * computed_carry) + (!nonzero_shift * carry_out);
         operand = !(shift_amount > 31) * (operand << (shift_amount & 31));
-        return nonzero_shift;
+        break;
     }
     case ShiftType::LSR: {
         std::uint32_t adjusted_shift = (((shift_amount != 0) * (shift_amount - 1)) + ((shift_amount == 0) * 31));
         carry_out = ((operand >> (adjusted_shift & 31)) & 1) * !(shift_amount > 32);
         operand = ((operand >> adjusted_shift) * !(shift_amount > 32)) >> 1;
-        return true;
+        break;
     }
     case ShiftType::ASR: {
         bool toggle = (shift_amount == 0) | (shift_amount > 31);
         std::uint32_t adjusted_shift = ((!toggle * (shift_amount - 1)) + (toggle * 31));
         carry_out = (operand >> adjusted_shift) & 1;
         operand = (static_cast<std::int32_t>(operand) >> adjusted_shift) >> !toggle;
-        return true;
+        break;
     }
     case ShiftType::ROR:
-        // TODO: could we make this branchless?
         if (reg_imm_shift && !shift_amount) {
             carry_out = operand & 1;
             operand = (static_cast<std::uint32_t>(m_regs.flags.c) << 31) | (operand >> 1);
@@ -164,14 +164,14 @@ bool CPU::barrel_shifter(
             operand = ror(operand, shift_amount);
             carry_out = operand >> 31;
         }
-        return true;
+        break;
     }
+    return true;
 }
 
 int CPU::branch(std::uint32_t instr) {
     bool bl = (instr >> 24) & 1;
-    std::int32_t nn = (static_cast<std::int32_t>((instr & 0xFFFFFF) << 8) >> 8) << 2;
-    nn >>= m_thumb_enabled;
+    std::int32_t nn = ((static_cast<std::int32_t>((instr & 0xFFFFFF) << 8) >> 8) << 2) >> m_thumb_enabled;
     if (bl) m_regs[14] = m_regs[15] - 4;
     m_regs[15] += nn;
     m_pipeline_invalid = true;
@@ -179,8 +179,9 @@ int CPU::branch(std::uint32_t instr) {
 }
 
 int CPU::branch_ex(std::uint32_t instr) {
+    bool l = ((instr >> 4) & 0xF) == 0x1;
     std::uint8_t rn = instr & 0xF;
-    if (((instr >> 4) & 0xF) == 0x1) {
+    if (l) {
         m_thumb_enabled = m_regs[rn] & 1;
         m_regs[15] = m_regs[rn] & ~(0b1 | (!m_thumb_enabled * 0b10));
     } else {
@@ -455,190 +456,183 @@ int CPU::swp(std::uint32_t instr) {
     return 1;
 }
 
-int CPU::alu(std::uint32_t instr) {
+void CPU::get_alu_operands(
+    std::uint32_t instr, 
+    std::uint32_t& op1, 
+    std::uint32_t& op2, 
+    bool& carry_out
+) {
     bool imm = (instr >> 25) & 1;
-    bool set_cc = (instr >> 20) & 1;
     auto rn = (instr >> 16) & 0xF;
-    auto rd = (instr >> 12) & 0xF;
-
-    auto operand_1 = m_regs[rn];
-    std::uint32_t operand_2 = 0;
-    bool carry_out = false;
-    bool carry_out_modify = false;
+    op1 = m_regs[rn];
 
     if (imm) {
         std::uint8_t imm_shift = ((instr >> 8) & 0xF) * 2; 
-        operand_2 = instr & 0xFF;
-        if (imm_shift) {
-            carry_out_modify = barrel_shifter(operand_2, carry_out, ShiftType::ROR, imm_shift, false);
-        }
+        op2 = instr & 0xFF;
+        if (imm_shift)
+            barrel_shifter(op2, carry_out, ShiftType::ROR, imm_shift, false);
     } else {
         bool r = (instr >> 4) & 1;
         ShiftType shift_type = static_cast<ShiftType>((instr >> 5) & 0x3);
         std::uint8_t rm = instr & 0xF;
 
-        operand_2 = m_regs[rm];
+        op2 = m_regs[rm];
         if (r) {
-            if (rn == 0xF) operand_1 = m_regs[15] + (4 >> m_thumb_enabled);
-            if (rm == 0xF) operand_2 = m_regs[15] + (4 >> m_thumb_enabled);
+            if (rn == 0xF) op1 = m_regs[15] + (4 >> m_thumb_enabled);
+            if (rm == 0xF) op2 = m_regs[15] + (4 >> m_thumb_enabled);
             std::uint8_t shift_amount = m_regs[(instr >> 8) & 0xF] & 0xFF;
-            if (shift_amount) {
-                carry_out_modify = barrel_shifter(operand_2, carry_out, shift_type, shift_amount, false);
-            }
+            if (shift_amount) 
+                barrel_shifter(op2, carry_out, shift_type, shift_amount, false);
         } else {
             std::uint8_t shift_amount = (instr >> 7) & 0x1F;
-            carry_out_modify = barrel_shifter(operand_2, carry_out, shift_type, shift_amount, true);
+            barrel_shifter(op2, carry_out, shift_type, shift_amount, true);
         }
     }
+}
+
+int CPU::alu(std::uint32_t instr) {
+    bool set_cc = (instr >> 20) & 1;
+    auto rd = (instr >> 12) & 0xF;
+
+    std::uint32_t op1 = 0;
+    std::uint32_t op2 = 0;
+    bool carry_out = m_regs.flags.c;
+    get_alu_operands(instr, op1, op2, carry_out);
 
     switch ((instr >> 21) & 0xF) {
     case 0x0: {
-        std::uint32_t result = operand_1 & operand_2;
+        std::uint32_t result = op1 & op2;
         if (set_cc) {
             m_regs.flags.n = result >> 31;
             m_regs.flags.z = !result;
-            if (carry_out_modify) {
-                m_regs.flags.c = carry_out;
-            }
+            m_regs.flags.c = carry_out;
         }
         safe_reg_assign(rd, result);
         break;
     }
     case 0x1: {
-        std::uint32_t result = operand_1 ^ operand_2;
+        std::uint32_t result = op1 ^ op2;
         if (set_cc) {
             m_regs.flags.n = result >> 31;
             m_regs.flags.z = !result;
-            if (carry_out_modify) {
-                m_regs.flags.c = carry_out;
-            }
+            m_regs.flags.c = carry_out;
         }
         safe_reg_assign(rd, result);
         break;
     }
     case 0x3: { // RSB
-        std::uint32_t temp = operand_1;
-        operand_1 = operand_2;
-        operand_2 = temp;
+        std::uint32_t temp = op1;
+        op1 = op2;
+        op2 = temp;
     }
     case 0x2: { // SUB
-        std::uint32_t result = operand_1 - operand_2;
+        std::uint32_t result = op1 - op2;
         if (set_cc) {
             m_regs.flags.n = result >> 31;
             m_regs.flags.z = !result;
-            m_regs.flags.c = operand_1 >= operand_2;
-            m_regs.flags.v = ((operand_1 >> 31) != (operand_2 >> 31)) && ((operand_1 >> 31) != (result >> 31));
+            m_regs.flags.c = op1 >= op2;
+            m_regs.flags.v = ((op1 >> 31) != (op2 >> 31)) && ((op1 >> 31) != (result >> 31));
         }
         safe_reg_assign(rd, result);
         break;
     }
     case 0x4: { // ADD
-        std::uint32_t result = operand_1 + operand_2;
+        std::uint32_t result = op1 + op2;
         if (set_cc) {
             m_regs.flags.n = result >> 31;
             m_regs.flags.z = result == 0;
-            m_regs.flags.c = ((operand_1 >> 31) + (operand_2 >> 31) > (result >> 31));
-            m_regs.flags.v = ((operand_1 >> 31) == (operand_2 >> 31)) && ((operand_1 >> 31) != (result >> 31));
+            m_regs.flags.c = ((op1 >> 31) + (op2 >> 31) > (result >> 31));
+            m_regs.flags.v = ((op1 >> 31) == (op2 >> 31)) && ((op1 >> 31) != (result >> 31));
         }
         safe_reg_assign(rd, result);
         break;
     }
     case 0x5: {
-        std::uint32_t result = operand_1 + operand_2 + m_regs.flags.c;
+        std::uint32_t result = op1 + op2 + m_regs.flags.c;
         if (set_cc) {
             m_regs.flags.n = result >> 31;
             m_regs.flags.z = !result;
-            m_regs.flags.c = ((operand_1 >> 31) + (operand_2 >> 31) > (result >> 31));
-            m_regs.flags.v = ((operand_1 >> 31) == (operand_2 >> 31)) && ((operand_1 >> 31) != (result >> 31));
+            m_regs.flags.c = ((op1 >> 31) + (op2 >> 31) > (result >> 31));
+            m_regs.flags.v = ((op1 >> 31) == (op2 >> 31)) && ((op1 >> 31) != (result >> 31));
         }
         safe_reg_assign(rd, result);
         break;
     }
     case 0x7: { // RSC
-        std::uint32_t temp = operand_1;
-        operand_1 = operand_2;
-        operand_2 = temp;
+        std::uint32_t temp = op1;
+        op1 = op2;
+        op2 = temp;
     }
     case 0x6: {
-        std::uint32_t result = operand_1 - operand_2 - !m_regs.flags.c;
+        std::uint32_t result = op1 - op2 - !m_regs.flags.c;
         if (set_cc) {
             m_regs.flags.n = result >> 31;
             m_regs.flags.z = !result;
-            m_regs.flags.c = static_cast<std::uint64_t>(operand_1) >= (static_cast<std::uint64_t>(operand_2) + !m_regs.flags.c);
-            m_regs.flags.v = ((operand_1 >> 31) != (operand_2 >> 31)) && ((operand_1 >> 31) != (result >> 31));
+            m_regs.flags.c = static_cast<std::uint64_t>(op1) >= (static_cast<std::uint64_t>(op2) + !m_regs.flags.c);
+            m_regs.flags.v = ((op1 >> 31) != (op2 >> 31)) && ((op1 >> 31) != (result >> 31));
         }
         safe_reg_assign(rd, result);
         break;
     }
     case 0x8: {
-        std::uint32_t result = operand_1 & operand_2;
+        std::uint32_t result = op1 & op2;
         m_regs.flags.n = result >> 31;
         m_regs.flags.z = !result;
-        if (carry_out_modify) {
-            m_regs.flags.c = carry_out;
-        }
+        m_regs.flags.c = carry_out;
         break;
     }
     case 0x9: { // TEQ
-        std::uint32_t result = operand_1 ^ operand_2;
+        std::uint32_t result = op1 ^ op2;
         m_regs.flags.n = result >> 31;
         m_regs.flags.z = !result;
-        if (carry_out_modify) {
-            m_regs.flags.c = carry_out;
-        }
+        m_regs.flags.c = carry_out;
         break;
     }
     case 0xA: { // CMP
-        std::uint32_t result = operand_1 - operand_2;
+        std::uint32_t result = op1 - op2;
         m_regs.flags.n = result >> 31;
         m_regs.flags.z = result == 0;
-        m_regs.flags.c = operand_1 >= operand_2;
-        m_regs.flags.v = ((operand_1 >> 31) != (operand_2 >> 31)) && ((operand_1 >> 31) != (result >> 31));
+        m_regs.flags.c = op1 >= op2;
+        m_regs.flags.v = ((op1 >> 31) != (op2 >> 31)) && ((op1 >> 31) != (result >> 31));
         break;
     }
     case 0xB: { // CMN
-        std::uint32_t result = operand_1 + operand_2;
+        std::uint32_t result = op1 + op2;
         m_regs.flags.n = result >> 31;
         m_regs.flags.z = !result;
-        m_regs.flags.c = ((operand_1 >> 31) + (operand_2 >> 31) > (result >> 31));
-        m_regs.flags.v = ((operand_1 >> 31) == (operand_2 >> 31)) && ((operand_1 >> 31) != (result >> 31));
+        m_regs.flags.c = ((op1 >> 31) + (op2 >> 31) > (result >> 31));
+        m_regs.flags.v = ((op1 >> 31) == (op2 >> 31)) && ((op1 >> 31) != (result >> 31));
         break;
     }
     case 0xC: { // ORR
-        std::uint32_t result = operand_1 | operand_2;
+        std::uint32_t result = op1 | op2;
         if (set_cc) {
             m_regs.flags.n = result >> 31;
             m_regs.flags.z = !result;
-            if (carry_out_modify) {
-                m_regs.flags.c = carry_out;
-            }
+            m_regs.flags.c = carry_out;
         }
         safe_reg_assign(rd, result);
         break;
     }
     case 0xE: { // BIC
-        std::uint32_t result = operand_1 & ~operand_2;
+        std::uint32_t result = op1 & ~op2;
         if (set_cc) {
             m_regs.flags.n = result >> 31;
             m_regs.flags.z = !result;
-            if (carry_out_modify) {
-                m_regs.flags.c = carry_out;
-            }
+            m_regs.flags.c = carry_out;
         } 
         safe_reg_assign(rd, result);
         break;
     }
     case 0xF: // MVN
-        operand_2 = ~operand_2;
+        op2 = ~op2;
     case 0xD: // MOV
         if (set_cc) {
-            m_regs.flags.n = operand_2 >> 31;
-            m_regs.flags.z = !operand_2;
-            if (carry_out_modify) {
-                m_regs.flags.c = carry_out;
-            }
+            m_regs.flags.n = op2 >> 31;
+            m_regs.flags.z = !op2;
+            m_regs.flags.c = carry_out;
         }
-        safe_reg_assign(rd, operand_2);
+        safe_reg_assign(rd, op2);
         break;
     }
 
@@ -1074,11 +1068,11 @@ void CPU::step() {
     m_mem.tick_components(execute());
 }
 
-FrameBuffer CPU::view_current_frame() {
+FrameBuffer& CPU::view_current_frame() {
     return m_mem.get_frame();
 }
 
-FrameBuffer CPU::render_frame(std::uint16_t key_input, std::uint32_t breakpoint, bool& breakpoint_reached) {
+FrameBuffer& CPU::render_frame(std::uint16_t key_input, std::uint32_t breakpoint, bool& breakpoint_reached) {
     m_mem.m_key_input = key_input;
     int cycles = 0;
     while (cycles < CYCLES_PER_FRAME) {

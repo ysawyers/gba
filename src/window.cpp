@@ -129,11 +129,11 @@ void Window::render_game_window() {
     }
 
     const ImVec2 window_size = ImGui::GetWindowSize();
-    const float pixel_size = m_menu_bar.m_toggle_debug_panel ? 3 : 3.5;
+    const float pixel_size = m_menu_bar.m_toggle_debug_panel ? 2.5 : 3.5;
     const float y_offset = ((window_size.y - (GBA_HEIGHT * pixel_size)) / 2);
     const float x_offset = ((window_size.x - (GBA_WIDTH * pixel_size)) / 2) * !m_menu_bar.m_toggle_debug_panel;
 
-    FrameBuffer frame_buffer = m_breakpoint_reached ? m_cpu->view_current_frame() : m_cpu->render_frame(key_input, m_breakpoint, m_breakpoint_reached);
+    const auto& frame_buffer = m_breakpoint_reached ? m_cpu->view_current_frame() : m_cpu->render_frame(key_input, m_breakpoint, m_breakpoint_reached);
     ImDrawList* draw_list = ImGui::GetWindowDrawList();
     for (int col = 0; col < GBA_HEIGHT; col++) {
         for (int row = 0; row < GBA_WIDTH; row++) {
@@ -158,7 +158,7 @@ void Window::render_debug_window() {
         ImGuiWindowFlags_NoCollapse | 
         ImGuiWindowFlags_NoResize;
 
-    const int game_window_width = (3 * GBA_WIDTH);
+    const int game_window_width = (2.5 * GBA_WIDTH);
     const ImGuiViewport* viewport = ImGui::GetMainViewport();
     ImGui::SetNextWindowPos(ImVec2(game_window_width, m_menu_bar_height));
     ImGui::SetNextWindowSize(ImVec2(viewport->Size.x - game_window_width, viewport->Size.y));
@@ -167,11 +167,11 @@ void Window::render_debug_window() {
     if (ImGui::BeginChild(ImGui::GetID("instr_view"), ImVec2(-1, 250), ImGuiChildFlags_Border)) {
         auto instrs = m_debugger->view_nearby_instructions();
         for (const auto& instr : instrs) {
-            if (m_debugger->view_registers()[15] == instr.addr) {
-                ImGui::TextColored(ImVec4(1, 1, 0, 1), "> %08X %08X", instr.addr, instr.opcode);
+            if (m_debugger->current_pc() == instr.addr) {
+                ImGui::TextColored(ImVec4(1, 1, 0, 1), "%08X %08X %s", instr.addr, instr.opcode, instr.desc.c_str());
                 ImGui::SetScrollHereY(0.5f);
             } else {
-                ImGui::Text("%08X %08X", instr.addr, instr.opcode);
+                ImGui::Text("%08X %08X %s", instr.addr, instr.opcode, instr.desc.c_str());
             }
         }
     }
@@ -189,6 +189,7 @@ void Window::render_debug_window() {
     ImGui::SameLine();
     if (m_breakpoint_reached && ImGui::Button("Resume")) {
         m_breakpoint_reached = false;
+        m_breakpoint = 0xFFFFFFFF;
     }
     if (m_breakpoint_reached && ImGui::Button("Step")) {
         m_cpu->step();
@@ -205,13 +206,11 @@ void Window::render_debug_window() {
                 ImGui::Text("r%d: 0x%08X", reg, regs[reg]);
             }
         }
-
         ImGui::TableNextRow();
         ImGui::TableSetColumnIndex(0);
-        ImGui::Text("cpsr"); // TODO
+        ImGui::Text("cpsr: 0x%08X", m_debugger->view_cpsr());
         ImGui::TableSetColumnIndex(1);
-        ImGui::Text("psr"); // TODO
-
+        ImGui::Text("psr: 0x%08X", m_debugger->view_psr());
         ImGui::EndTable();
     }
 
@@ -271,7 +270,7 @@ void Window::open() {
         render_backdrop_window();
         render_game_window();
 
-        if (m_menu_bar.m_toggle_debug_panel) render_debug_window();
+        if (m_menu_bar.m_toggle_debug_panel) render_debug_window(); // TODO: resume automatically when closed?
         if (m_menu_bar.m_toggle_demo_window) ImGui::ShowDemoWindow(&m_menu_bar.m_toggle_demo_window);
 
         ImGui::Render();

@@ -4,6 +4,8 @@
 #include <array>
 #include <vector>
 
+typedef std::array<std::array<std::uint16_t, 240>, 160> FrameBuffer;
+
 class PPU {
     public:
         PPU() : m_vcount(0), m_scanline_cycles(0) {
@@ -16,7 +18,7 @@ class PPU {
 
         bool is_rendering_bitmap();
 
-        std::array<std::array<std::uint16_t, 240>, 160> m_frame{{}};
+        FrameBuffer m_frame{{}};
         std::uint16_t m_vcount;
         std::uint32_t m_scanline_cycles;
         std::vector<std::uint8_t> m_vram;
