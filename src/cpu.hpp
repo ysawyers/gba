@@ -29,11 +29,11 @@ struct Flags {
 
 class Registers {
     public:
-        Registers() : mode(0), m_list({}) {};
+        Registers() : control(0), m_list({}) {};
 
         Registers(Registers& regs) {
             flags = regs.flags;
-            mode = regs.mode;
+            control = regs.control;
             std::copy(regs.m_list.begin(), regs.m_list.end(), m_list.begin());
         }
 
@@ -42,7 +42,7 @@ class Registers {
         }
 
         Flags flags;
-        std::uint8_t mode;
+        std::uint8_t control;
 
     private:
         std::array<std::uint32_t, 16> m_list{};
@@ -68,12 +68,13 @@ class CPU {
         enum class InstrFormat : std::uint8_t {
             NOP = 0, B, BX, SWP, MRS, SWI, MUL, MSR, ALU, 
             SINGLE_TRANSFER, HALFWORD_TRANSFER, BLOCK_TRANSFER,
-            THUMB_1, THUMB_2, THUMB_3, THUMB_4, THUMB_5, THUMB_6,
-            THUMB_7, THUMB_8, THUMB_9, THUMB_10, THUMB_11, THUMB_12,
+            THUMB_1, THUMB_2, THUMB_3, THUMB_4, THUMB_5_ALU, THUMB_5_BX,
+            THUMB_6, THUMB_7, THUMB_8, THUMB_9, THUMB_10, THUMB_11, THUMB_12,
             THUMB_13, THUMB_14, THUMB_15, THUMB_16, THUMB_17, THUMB_18,
             THUMB_19_PREFIX, THUMB_19_SUFFIX
         };
 
+        bool condition(std::uint32_t instr);
         std::uint32_t fetch_arm();
         std::uint16_t fetch_thumb();
         int execute();
@@ -93,13 +94,12 @@ class CPU {
             bool& carry_out
         );
 
-        bool condition(std::uint32_t instr);
-
+        Registers& sys_bank();
         std::uint32_t get_cpsr();
         std::uint32_t get_psr();
-        Registers& get_sys_bank();
 
         void update_cpsr_mode(std::uint8_t mode_bits);
+        void update_cpsr_thumb_status(bool enabled);
 
         int branch(std::uint32_t instr);
         int branch_ex(std::uint32_t instr);
@@ -116,7 +116,8 @@ class CPU {
         std::uint32_t thumb_translate_1(std::uint16_t instr);
         std::uint32_t thumb_translate_2(std::uint16_t instr);
         std::uint32_t thumb_translate_3(std::uint16_t instr);
-        std::uint32_t thumb_translate_5(std::uint16_t instr, std::uint32_t rs, std::uint32_t thumb_opcode);
+        std::uint32_t thumb_translate_5_alu(std::uint16_t instr);
+        std::uint32_t thumb_translate_5_bx(std::uint16_t instr);
         std::uint32_t thumb_translate_7(std::uint16_t instr);
         std::uint32_t thumb_translate_8(std::uint16_t instr);
         std::uint32_t thumb_translate_9(std::uint16_t instr);
@@ -347,13 +348,13 @@ class CPU {
             {
                 std::uint16_t suffix = 0b010001 << 4;
                 for (std::uint16_t mask = 0; mask <= 0b1111; mask++) {
-                    lut[suffix | mask] = InstrFormat::THUMB_5;
+                    lut[suffix | mask] = InstrFormat::THUMB_5_ALU;
                 }
             }
             {
                 std::uint16_t suffix = 0b01000111 << 2;
                 for (std::uint16_t mask = 0; mask <= 0b11; mask++) {
-                    lut[suffix | mask] = InstrFormat::THUMB_5;
+                    lut[suffix | mask] = InstrFormat::THUMB_5_BX;
                 }
             }
             {

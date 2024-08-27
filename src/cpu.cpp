@@ -6,6 +6,9 @@
 
 static const int CYCLES_PER_FRAME = 280896;
 
+#define USR_BITS 0b10000
+#define SYS_BITS 0b11111
+
 CPU::CPU(const std::string& rom_filepath) 
     : m_pipeline(0), m_pipeline_invalid(true), m_thumb_enabled(false)
 {
@@ -15,8 +18,8 @@ CPU::CPU(const std::string& rom_filepath)
 }
 
 void CPU::initialize_registers() {
-    m_regs.mode = 0x1F;
-    m_banked_regs[SYS].mode = 0x1F;
+    m_regs.control = 0x1F;
+    m_banked_regs[SYS].control = 0x1F;
     m_banked_regs[SVC][13] = 0x03007FE0;
     m_banked_regs[IRQ][13] = 0x03007FA0;
     m_regs[13] = 0x03007F00;
@@ -24,9 +27,10 @@ void CPU::initialize_registers() {
     m_regs[15] = 0x08000000;
 }
 
-Registers& CPU::get_sys_bank() {
-    std::uint8_t mode_bits = m_banked_regs[SYS].mode & 0x1F;
-    return ((mode_bits == 0x1F) || (mode_bits == 0x10)) ? m_regs : m_banked_regs[SYS];
+Registers& CPU::sys_bank() {
+    auto mode_bits = m_banked_regs[SYS].control & 0x1F;
+    return ((mode_bits == SYS_BITS) || (mode_bits == USR_BITS)) ? m_regs 
+        : m_banked_regs[SYS];
 }
 
 Registers& CPU::get_bank(std::uint8_t mode) {
@@ -44,24 +48,24 @@ Registers& CPU::get_bank(std::uint8_t mode) {
 
 std::uint32_t CPU::get_psr() {
     std::uint8_t flags = (m_regs.flags.n << 3) | (m_regs.flags.z << 2) | (m_regs.flags.c << 1) | m_regs.flags.v;
-    return static_cast<std::uint32_t>(flags << 28) | m_regs.mode;
+    return static_cast<std::uint32_t>(flags << 28) | m_regs.control;
 }
 
 std::uint32_t CPU::get_cpsr() {
-    const auto& sys = get_sys_bank();
+    const auto& sys = sys_bank();
     std::uint8_t flags = (sys.flags.n << 3) | (sys.flags.z << 2) | (sys.flags.c << 1) | sys.flags.v;
-    return static_cast<std::uint32_t>(flags << 28) | sys.mode;
+    return static_cast<std::uint32_t>(flags << 28) | sys.control;
 }
 
 void CPU::update_cpsr_mode(std::uint8_t mode_bits) {
-    std::uint8_t prev_mode = m_banked_regs[SYS].mode & 0x1F;
+    std::uint8_t prev_mode = m_banked_regs[SYS].control & 0x1F;
 
     // write-back all changes made to current registers to respective bank
-    get_bank(m_banked_regs[SYS].mode & 0x1F) = m_regs;
+    get_bank(m_banked_regs[SYS].control & 0x1F) = m_regs;
 
     // update cpsr mode bits to reflect the new mode the CPU will be in.
     // MUST DO THIS BEFORE ACTUAL TRANSFER!!
-    m_banked_regs[SYS].mode = (m_banked_regs[SYS].mode & ~0x1F) | mode_bits;
+    m_banked_regs[SYS].control = (m_banked_regs[SYS].control & ~0x1F) | mode_bits;
 
     switch (mode_bits) {
     case 0b10000: // USR
@@ -71,13 +75,13 @@ void CPU::update_cpsr_mode(std::uint8_t mode_bits) {
     case 0b11011: // UND
     case 0b10111: // ABT
     {
-        // If a transfer occurs from FIQ we have to make sure to load in registers r8-r12
-        // in addition to r13 and r14
+        // If a transfer occurs from FIQ (prev_mode) we have to make sure to
+        // load in registers r8-r12 in addition to r13 and r14
         auto& bank = get_bank(mode_bits);
         for (int i = 8 + ((prev_mode != 0b10001) * 5); i < 15; i++) {
             m_regs[i] = bank[i];
         }
-        m_regs.mode = bank.mode;
+        m_regs.control = bank.control;
         m_regs.flags = bank.flags;
         break;
     }
@@ -97,12 +101,18 @@ void CPU::update_cpsr_mode(std::uint8_t mode_bits) {
         for (int i = 8; i < 15; i++) {
             m_regs[i] = fiq_bank[i];
         }
-        m_regs.mode = fiq_bank.mode;
+        m_regs.control = fiq_bank.control;
         m_regs.flags = fiq_bank.flags;
         break;
     }
     default: std::unreachable();
     }
+}
+
+void CPU::update_cpsr_thumb_status(bool enabled) {
+    auto& sys = sys_bank();
+    sys.control = (sys.control & ~(1 << 5)) | (static_cast<std::uint8_t>(enabled) << 5);
+    m_thumb_enabled = enabled;
 }
 
 std::uint32_t CPU::ror(std::uint32_t operand, std::size_t shift_amount) {
@@ -200,9 +210,7 @@ int CPU::branch(std::uint32_t instr) {
 
 int CPU::branch_ex(std::uint32_t instr) {
     std::uint8_t rn = instr & 0xF;
-    m_thumb_enabled = m_regs[rn] & 1;
-    auto& sys = get_sys_bank();
-    sys.mode = (static_cast<std::uint8_t>(m_thumb_enabled) << 5) | (sys.mode & 0x1F);
+    update_cpsr_thumb_status(m_regs[rn] & 1);
     m_regs[15] = m_regs[rn] & ~(0b1 | (!m_thumb_enabled * 0b10));
     m_pipeline_invalid = true;
     return 1;
@@ -328,9 +336,9 @@ int CPU::block_transfer(std::uint32_t instr) {
     std::uint8_t prev_mode = 0;
     if (s) {
         if (l && ((reg_list >> 15) & 1)) {
-            update_cpsr_mode(m_regs.mode & 0x1F);
+            update_cpsr_mode(m_regs.control & 0x1F);
         } else {
-            prev_mode = m_banked_regs[SYS].mode & 0x1F;
+            prev_mode = m_banked_regs[SYS].control & 0x1F;
             update_cpsr_mode(0x1F);
         }
     }
@@ -421,15 +429,15 @@ int CPU::msr(std::uint32_t instr) {
             m_regs.flags.v = (flags >> 28) & 1;
         }
         if (c) {
-            if (((m_banked_regs[SYS].mode & 0x1F) == 0x1F) || ((m_banked_regs[SYS].mode & 0x1F) == 0x10)) {
+            if (((m_banked_regs[SYS].control & 0x1F) == 0x1F) || ((m_banked_regs[SYS].control & 0x1F) == 0x10)) {
                 update_cpsr_mode(mode & 0x1F);
             } else {
-                m_regs.mode = mode;
+                m_regs.control = mode;
             }
         }
     } else {
-        Registers& sys = get_sys_bank();
         if (f) {
+            Registers& sys = sys_bank();
             sys.flags.n = flags >> 31;
             sys.flags.z = (flags >> 30) & 1;
             sys.flags.c = (flags >> 29) & 1;
@@ -443,15 +451,17 @@ int CPU::msr(std::uint32_t instr) {
 }
 
 int CPU::swi(std::uint32_t instr) {
-    auto& sys = get_sys_bank();
-    m_banked_regs[SVC].mode = sys.mode;
+    // make sure that flag/control bits are copied to SVC BEFORE the
+    // transfer to ensure svc_psr holds the correct cpsr value
+    auto& sys = sys_bank();
+    m_banked_regs[SVC].control = sys.control;
     m_banked_regs[SVC].flags = sys.flags;
+
     update_cpsr_mode(0x13);
     m_regs[14] = m_regs[15] - (4 >> m_thumb_enabled);
     m_regs[15] = 0x00000008;
     m_pipeline_invalid = true;
-    m_thumb_enabled = false;
-    m_banked_regs[SYS].mode &= 0x1F;
+    update_cpsr_thumb_status(false);
     return 1;
 }
 
@@ -517,11 +527,9 @@ int CPU::alu(std::uint32_t instr) {
     get_alu_operands(instr, op1, op2, carry_out);
 
     if ((rd == 0xF) && set_cc) [[unlikely]] {
-        bool enable_thumb = (m_regs.mode >> 5) & 1;
-        update_cpsr_mode(m_regs.mode & 0x1F);
-        auto& sys = get_sys_bank();
-        m_thumb_enabled = enable_thumb;
-        sys.mode = (static_cast<std::uint8_t>(m_thumb_enabled) << 5) | (sys.mode & 0x1F);
+        bool prev_thumb_status = (m_regs.control >> 5) & 1;
+        update_cpsr_mode(m_regs.control & 0x1F);
+        update_cpsr_thumb_status(prev_thumb_status);
     }
 
     switch ((instr >> 21) & 0xF) {
@@ -743,186 +751,6 @@ int CPU::mul(std::uint32_t instr) {
     return 1;
 }
 
-std::uint32_t CPU::thumb_translate_1(std::uint16_t instr) {
-    std::uint32_t translation = 0b11100001101100000000000000000000;
-    std::uint32_t shift_amount = (instr >> 6) & 0x1F;
-    std::uint32_t rs = (instr >> 3) & 0x7;
-    std::uint32_t rd = instr & 0x7;
-    std::uint32_t shift_type = (instr >> 11) & 0x3;
-    translation |= (rd << 12);
-    translation |= (shift_amount << 7);
-    translation |= (shift_type << 5);
-    translation |= rs;
-    return translation;
-}
-
-std::uint32_t CPU::thumb_translate_2(std::uint16_t instr) {
-    std::uint32_t translation = 0b11100000000100000000000000000000;
-    std::uint32_t rn_or_nn = (instr >> 6) & 0x7;
-    std::uint32_t rs = (instr >> 3) & 0x7;
-    std::uint32_t rd = instr & 0x7;
-    std::uint32_t i = (instr >> 10) & 1;
-    std::uint32_t arm_opcode = 0x2 << !((instr >> 9) & 1);
-    translation |= (i << 25);
-    translation |= (arm_opcode << 21);
-    translation |= (rs << 16);
-    translation |= (rd << 12);
-    translation |= rn_or_nn;
-    return translation;
-}
-
-std::uint32_t CPU::thumb_translate_3(std::uint16_t instr) {
-    std::uint32_t translation = 0b11100010000100000000000000000000;
-    std::uint32_t rd = (instr >> 8) & 0x7;
-    std::uint32_t nn = instr & 0xFF;
-    std::uint32_t thumb_opcode = (instr >> 11) & 0x3;
-    std::uint32_t arm_opcode = 0b1101;
-    arm_opcode = (arm_opcode << thumb_opcode) & 0xF;
-    arm_opcode >>= (!(~thumb_opcode & 0x3) << 1);
-    translation |= (arm_opcode << 21);
-    translation |= (rd << 16);
-    translation |= (rd << 12);
-    translation |= nn;
-    return translation;
-}
-
-std::uint32_t CPU::thumb_translate_5(std::uint16_t instr, std::uint32_t rs, std::uint32_t thumb_opcode) {
-    std::uint32_t translation = 0b11100000000000000000000000000000;
-    std::uint32_t rd = (((instr >> 7) & 1) << 3) | (instr & 0x7);
-    std::uint32_t arm_opcode = 0b110100;
-    arm_opcode = (arm_opcode >> thumb_opcode) & 0xF;
-    translation |= ((thumb_opcode == 0x1) << 20);
-    translation |= (arm_opcode << 21);
-    translation |= (rd << 16);
-    translation |= (rd << 12);
-    translation |= rs;
-    return translation;
-}
-
-std::uint32_t CPU::thumb_translate_7(std::uint16_t instr) {
-    std::uint32_t translation = 0b11100111100000000000000000000000;
-    std::uint32_t ro = (instr >> 6) & 0x7;
-    std::uint32_t rb = (instr >> 3) & 0x7;
-    std::uint32_t rd = instr & 0x7;
-    std::uint32_t b = (instr >> 10) & 1;
-    std::uint32_t l = (instr >> 11) & 1;
-    translation |= (b << 22);
-    translation |= (l << 20);
-    translation |= (rb << 16);
-    translation |= (rd << 12);
-    translation |= ro;
-    return translation;
-}
-
-std::uint32_t CPU::thumb_translate_8(std::uint16_t instr) {
-    std::uint32_t translation = 0b11100001100000000000000010010000;
-    std::uint32_t ro = (instr >> 6) & 0x7;
-    std::uint32_t rb = (instr >> 3) & 0x7;
-    std::uint32_t rd = instr & 0x7;
-    std::uint32_t thumb_opcode = (instr >> 10) & 0x3;
-    std::uint32_t arm_opcode = (((thumb_opcode << 1) & 0x3) | ((thumb_opcode >> 1) & 1)) | !thumb_opcode;
-    std::uint32_t l = !!thumb_opcode;
-    translation |= (l << 20);
-    translation |= (rb << 16);
-    translation |= (rd << 12);
-    translation |= (arm_opcode << 5);
-    translation |= ro;
-    return translation;
-}
-
-std::uint32_t CPU::thumb_translate_9(std::uint16_t instr) {
-    std::uint32_t translation = 0b11100101100000000000000000000000;
-    std::uint32_t rb = (instr >> 3) & 0x7;
-    std::uint32_t rd = instr & 0x7;
-    std::uint32_t b = (instr >> 12) & 1;
-    std::uint32_t l = (instr >> 11) & 1;
-    std::uint32_t nn = ((instr >> 6) & 0x1F) << (!b << 1);
-    translation |= (b << 22);
-    translation |= (l << 20);
-    translation |= (rb << 16);
-    translation |= (rd << 12);
-    translation |= nn;
-    return translation;
-}
-
-std::uint32_t CPU::thumb_translate_10(std::uint16_t instr) {
-    std::uint32_t translation = 0b11100001110000000000000010110000;
-    std::uint32_t rb = (instr >> 3) & 0x7;
-    std::uint32_t rd = instr & 0x7;
-    std::uint32_t nn = ((instr >> 6) & 0x1F) << 1;
-    std::uint32_t l = ((instr >> 11) & 1);
-    translation |= (l << 20);
-    translation |= (rd << 12);
-    translation |= (rb << 16);
-    translation |= (((nn & 0xF0) >> 4) << 8);
-    translation |= (nn & 0xF);
-    return translation;
-}
-
-std::uint32_t CPU::thumb_translate_11(std::uint16_t instr) {
-    std::uint32_t translation = 0b11100101100011010000000000000000;
-    std::uint32_t l = (instr >> 11) & 1;
-    std::uint32_t rd = (instr >> 8) & 0x7;
-    std::uint32_t nn = (instr & 0xFF) << 2;
-    translation |= (l << 20);
-    translation |= (rd << 12);
-    translation |= nn;
-    return translation;
-}
-
-std::uint32_t CPU::thumb_translate_13(std::uint16_t instr) {
-    std::uint32_t translation = 0b11100010000011011101111100000000;
-    translation |= (4 << (21 - ((instr >> 7) & 1)));
-    translation |= (instr & 0x7F);
-    return translation;
-}
-
-std::uint32_t CPU::thumb_translate_14(std::uint16_t instr) {
-    std::uint32_t translation = 0b11101000001011010000000000000000;
-    std::uint32_t opcode = (instr >> 11) & 1;
-    std::uint32_t pc_or_lr = (instr >> 8) & 1;
-    std::uint32_t reg_list = instr & 0xFF;
-    translation |= (!opcode << 24);
-    translation |= (opcode << 23);
-    translation |= (opcode << 20);
-    translation |= reg_list;
-    translation |= ((pc_or_lr & 1) << (0xE | opcode));
-    return translation;
-}
-
-std::uint32_t CPU::thumb_translate_15(std::uint16_t instr) {
-    std::uint32_t translation = 0b11101000101000000000000000000000;
-    std::uint32_t opcode = (instr >> 11) & 1;
-    std::uint32_t rb = (instr >> 8) & 0x7;
-    std::uint32_t reg_list = instr & 0xFF;
-    translation |= (opcode << 20);
-    translation |= (rb << 16);
-    translation |= reg_list;
-    return translation;
-}
-
-std::uint32_t CPU::thumb_translate_16(std::uint16_t instr) {
-    std::uint32_t translation = 0b00001010000000000000000000000000;
-    std::uint32_t cond = (instr >> 8) & 0xF;
-    std::uint32_t offset = static_cast<std::int32_t>(static_cast<std::int8_t>((instr & 0xFF)));
-    translation |= (cond << 28);
-    translation |= (offset & 0xFFFFFF);
-    return translation;
-}
-
-std::uint32_t CPU::thumb_translate_17(std::uint16_t instr) {
-    std::uint32_t translation = 0b11101111000000000000000000000000;
-    translation |= (instr & 0xFF);
-    return translation;
-}
-
-std::uint32_t CPU::thumb_translate_18(std::uint16_t instr) {
-    std::uint32_t translation = 0b11101010000000000000000000000000;
-    std::uint32_t offset = static_cast<std::int32_t>((static_cast<std::int16_t>((instr & 0x7FF) << 5) >> 5));
-    translation |= (offset & 0xFFFFFF);
-    return translation;
-}
-
 int CPU::execute() {
     if (m_thumb_enabled) {
         std::uint16_t instr = m_pipeline_invalid ? fetch_thumb() : m_pipeline;
@@ -979,19 +807,11 @@ int CPU::execute() {
                 translation |= (rs << 8);
                 translation |= rd;
                 goto complete_translation;
-            
+
             std::unreachable();
         }
-        case InstrFormat::THUMB_5: {
-            std::uint32_t thumb_opcode = (instr >> 8) & 0x3;
-            std::uint32_t rs = (((instr >> 6) & 1) << 3) | ((instr >> 3) & 0x7);
-            if (thumb_opcode == 0x3) {
-                std::uint32_t translation = 0b11100001001011111111111100010000;
-                translation |= rs;
-                return branch_ex(translation);
-            }
-            return alu(thumb_translate_5(instr, rs, thumb_opcode));
-        }
+        case InstrFormat::THUMB_5_ALU: return alu(thumb_translate_5_alu(instr));
+        case InstrFormat::THUMB_5_BX: return branch_ex(thumb_translate_5_bx(instr));
         case InstrFormat::THUMB_6: {
             std::uint8_t rd = (instr >> 8) & 0x7;
             std::uint16_t nn = (instr & 0xFF) << 2;
