@@ -48,44 +48,61 @@ std::uint32_t CPU::get_psr() {
 }
 
 std::uint32_t CPU::get_cpsr() {
-    auto& sys = get_sys_bank();
+    const auto& sys = get_sys_bank();
     std::uint8_t flags = (sys.flags.n << 3) | (sys.flags.z << 2) | (sys.flags.c << 1) | sys.flags.v;
     return static_cast<std::uint32_t>(flags << 28) | sys.mode;
 }
 
-void CPU::update_cpsr_mode(std::uint8_t new_mode) {
-    // mask off other bits, only want to change the mode bits here
-    new_mode &= 0x1F;
+void CPU::update_cpsr_mode(std::uint8_t mode_bits) {
+    std::uint8_t prev_mode = m_banked_regs[SYS].mode & 0x1F;
 
-    get_bank(m_banked_regs[SYS].mode) = m_regs;
-    switch (new_mode) {
-    case 0b10000:
-    case 0b11111:
-    case 0b10011:
-    case 0b10010:
-    case 0b11011:
-    case 0b10111: {
-        auto& bank = get_bank(new_mode);
-        for (int i = 8 + ((m_banked_regs[SYS].mode != 0b10001) * 5); i < 15; i++) {
+    // write-back all changes made to current registers to respective bank
+    get_bank(m_banked_regs[SYS].mode & 0x1F) = m_regs;
+
+    // update cpsr mode bits to reflect the new mode the CPU will be in.
+    // MUST DO THIS BEFORE ACTUAL TRANSFER!!
+    m_banked_regs[SYS].mode = (m_banked_regs[SYS].mode & ~0x1F) | mode_bits;
+
+    switch (mode_bits) {
+    case 0b10000: // USR
+    case 0b11111: // SYS
+    case 0b10011: // SVC
+    case 0b10010: // IRQ
+    case 0b11011: // UND
+    case 0b10111: // ABT
+    {
+        // If a transfer occurs from FIQ we have to make sure to load in registers r8-r12
+        // in addition to r13 and r14
+        auto& bank = get_bank(mode_bits);
+        for (int i = 8 + ((prev_mode != 0b10001) * 5); i < 15; i++) {
             m_regs[i] = bank[i];
         }
+        m_regs.mode = bank.mode;
+        m_regs.flags = bank.flags;
         break;
     }
-    case 0b10001: {
+    case 0b10001: // FIQ
+    {
+        // FIQ has additional banked registers r8-r12 so we have
+        // to write-back to each bank with the current register contents
+        // except for FIQ which we are loading in (EDGE CASE)
         for (int i = 0; i < 6; i++) {
             if (i == FIQ) continue;
             for (int j = 8; j < 13; j++) {
                 m_banked_regs[i][j] = m_regs[j];
             }
         }
+
+        auto& fiq_bank = m_banked_regs[FIQ];
         for (int i = 8; i < 15; i++) {
-            m_regs[i] = m_banked_regs[FIQ][i];
+            m_regs[i] = fiq_bank[i];
         }
+        m_regs.mode = fiq_bank.mode;
+        m_regs.flags = fiq_bank.flags;
         break;
     }
     default: std::unreachable();
     }
-    m_banked_regs[SYS].mode = (m_banked_regs[SYS].mode & ~0x1F) | new_mode;
 }
 
 std::uint32_t CPU::ror(std::uint32_t operand, std::size_t shift_amount) {
@@ -311,9 +328,9 @@ int CPU::block_transfer(std::uint32_t instr) {
     std::uint8_t prev_mode = 0;
     if (s) {
         if (l && ((reg_list >> 15) & 1)) {
-            update_cpsr_mode(m_regs.mode);
+            update_cpsr_mode(m_regs.mode & 0x1F);
         } else {
-            prev_mode = m_banked_regs[SYS].mode;
+            prev_mode = m_banked_regs[SYS].mode & 0x1F;
             update_cpsr_mode(0x1F);
         }
     }
@@ -392,7 +409,7 @@ int CPU::msr(std::uint32_t instr) {
     
     std::uint32_t operand = i ? ror(imm, shift_amount) : m_regs[instr & 0xF];
     std::uint32_t flags = operand & 0xFF000000;
-    std::uint32_t mode = operand & 0x0000001F;
+    std::uint32_t mode = operand & 0x000000FF;
 
     // TODO: handle the IRQ disable bit
 
@@ -405,7 +422,7 @@ int CPU::msr(std::uint32_t instr) {
         }
         if (c) {
             if (((m_banked_regs[SYS].mode & 0x1F) == 0x1F) || ((m_banked_regs[SYS].mode & 0x1F) == 0x10)) {
-                update_cpsr_mode(mode);
+                update_cpsr_mode(mode & 0x1F);
             } else {
                 m_regs.mode = mode;
             }
@@ -419,7 +436,7 @@ int CPU::msr(std::uint32_t instr) {
             sys.flags.v = (flags >> 28) & 1;
         }
         if (c) {
-            update_cpsr_mode(mode);
+            update_cpsr_mode(mode & 0x1F);
         }
     }
     return 1;
@@ -500,13 +517,11 @@ int CPU::alu(std::uint32_t instr) {
     get_alu_operands(instr, op1, op2, carry_out);
 
     if ((rd == 0xF) && set_cc) [[unlikely]] {
-        // TODO: why are these values different??
-        printf("%02X\n", get_bank(m_banked_regs[SYS].mode).mode);
-        printf("%02X\n", m_regs.mode);
-
-        // restore the correct T bit to cpsr if we're changing to USR/SYS
-        update_cpsr_mode(m_regs.mode);
-        std::exit(1);
+        bool enable_thumb = (m_regs.mode >> 5) & 1;
+        update_cpsr_mode(m_regs.mode & 0x1F);
+        auto& sys = get_sys_bank();
+        m_thumb_enabled = enable_thumb;
+        sys.mode = (static_cast<std::uint8_t>(m_thumb_enabled) << 5) | (sys.mode & 0x1F);
     }
 
     switch ((instr >> 21) & 0xF) {

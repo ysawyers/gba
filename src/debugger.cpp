@@ -289,7 +289,23 @@ void Debugger::decompile_arm_instr(Instr& instr) {
         break;
     }
     case CPU::InstrFormat::MSR: {
-        instr.desc = std::format("MSR{}", cond);
+        bool i = (instr.opcode >> 25) & 1;
+        const char* f = ((instr.opcode >> 19) & 1) ? "f" : "";
+        const char* c = ((instr.opcode >> 16) & 1) ? "c" : "";
+        std::uint8_t shift_amount = ((instr.opcode >> 8) & 0xF) * 2;
+
+        instr.desc = std::format("MSR{} ", cond);
+        if ((instr.opcode >> 22) & 1) {
+            instr.desc += "psr_";
+        } else {
+            instr.desc += "cpsr_";
+        }
+        instr.desc += std::format("{}{}, ", f, c);
+        if (i) {
+            instr.desc += std::format("#{:08X}", m_cpu->ror(instr.opcode & 0xFF, shift_amount));
+        } else {
+            instr.desc += std::format("r{}", instr.opcode & 0xF);
+        }
         break;
     }
     case CPU::InstrFormat::MRS: {
@@ -303,8 +319,8 @@ void Debugger::decompile_arm_instr(Instr& instr) {
 
         switch ((instr.opcode >> 21) & 0xF) {
         default:
-            printf("MUL missing %d\n", (instr.opcode >> 21) & 0xF);
-            std::exit(1);
+            // printf("MUL missing %d\n", (instr.opcode >> 21) & 0xF);
+            // std::exit(1);
         }
         break;
     }

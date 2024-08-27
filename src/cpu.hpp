@@ -99,14 +99,7 @@ class CPU {
         std::uint32_t get_psr();
         Registers& get_sys_bank();
 
-        /*
-            This will directly update the banked SYS registers because even if the current
-            register bank is SYS, a mode switch will immediately discard that data. 
-            In that event the current SYS register bank will write over the banked SYS registers
-            and the banked SYS cpsr register will have its dirty mode bits overwritten by the new
-            mode.
-        */
-        void update_cpsr_mode(std::uint8_t new_mode);
+        void update_cpsr_mode(std::uint8_t mode_bits);
 
         int branch(std::uint32_t instr);
         int branch_ex(std::uint32_t instr);

@@ -88,7 +88,7 @@ void Window::render_game_window() {
         ImGuiWindowFlags_NoResize;
 
     const ImGuiViewport* viewport = ImGui::GetMainViewport();
-    const float game_window_width = m_menu_bar.m_toggle_debug_panel ? (3 * GBA_WIDTH)
+    const float game_window_width = m_menu_bar.m_toggle_debug_panel ? (2.5 * GBA_WIDTH)
         : viewport->Size.x;
     ImGui::SetNextWindowPos(ImVec2(0, m_menu_bar_height));
     ImGui::SetNextWindowSize(ImVec2(game_window_width, viewport->Size.y));
