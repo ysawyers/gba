@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "ppu.hpp"
+#include "timer.hpp"
 
 class Memory {
     public:
@@ -32,8 +33,6 @@ class Memory {
         FrameBuffer& get_frame();
 
         std::uint16_t m_key_input;
-
-        // TODO: potentially store in CPU instead of Memory?
         bool m_ime;
 
     private:
@@ -41,7 +40,13 @@ class Memory {
         std::vector<std::uint8_t> m_ewram;
         std::vector<std::uint8_t> m_iwram;
         std::vector<std::uint8_t> m_rom;
+
         PPU m_ppu;
+        Timer timer;
+
+        // TODO: once we are not assuming 1cpi, break this up into multiple members 
+        // for constant reads across different regions of memory
+        std::uint16_t m_waitcnt;
 };
 
 #endif

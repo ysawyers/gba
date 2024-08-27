@@ -5,7 +5,7 @@
 #include <unordered_map>
 #include <map>
 
-#include "debugger.hpp"
+#include "../debugger.hpp"
 
 #include "memory.hpp"
 

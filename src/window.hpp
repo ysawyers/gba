@@ -4,7 +4,7 @@
 #include <memory>
 #include <string>
 
-#include "cpu.hpp"
+#include "core/cpu.hpp"
 #include "debugger.hpp"
 
 #include <SDL.h>

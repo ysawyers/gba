@@ -2,7 +2,7 @@
 
 #include <format>
 
-#include "cpu.hpp"
+#include "core/cpu.hpp"
 
 Registers& Debugger::view_registers() {
     return m_cpu->m_regs;
