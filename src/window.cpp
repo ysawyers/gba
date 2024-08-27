@@ -194,6 +194,12 @@ void Window::render_debug_window() {
     if (m_breakpoint_reached && ImGui::Button("Step")) {
         m_cpu->step();
     }
+    ImGui::SameLine();
+    if (m_breakpoint_reached && ImGui::Button("Step 10")) {
+        for (int i = 0; i < 10; i++) {
+            m_cpu->step();
+        }
+    }
     ImGui::Spacing();
 
     if (ImGui::BeginTable("registers", 2)) {

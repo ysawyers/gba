@@ -33,14 +33,15 @@ class Memory {
 
         std::uint16_t m_key_input;
 
+        // TODO: potentially store in CPU instead of Memory?
+        bool m_ime;
+
     private:
         std::vector<std::uint8_t> m_bios;
         std::vector<std::uint8_t> m_ewram;
         std::vector<std::uint8_t> m_iwram;
         std::vector<std::uint8_t> m_rom;
         PPU m_ppu;
-
-        bool m_ime;
 };
 
 #endif

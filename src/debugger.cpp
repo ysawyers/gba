@@ -104,24 +104,27 @@ void Debugger::decompile_arm_instr(Instr& instr) {
     const char* cond = condition(instr.opcode);
     std::uint16_t opcode = (((instr.opcode >> 20) & 0xFF) << 4) | ((instr.opcode >> 4) & 0xF);
     switch (m_cpu->m_arm_lut[opcode]) {
+    case CPU::InstrFormat::NOP: {
+        instr.desc = "NOP";
+        break;
+    }
     case CPU::InstrFormat::B: {
         bool l = (instr.opcode >> 24) & 1;
-        std::int32_t nn = ((static_cast<std::int32_t>((instr.opcode & 0xFFFFFF) << 8) >> 8) << 2) >> m_cpu->m_thumb_enabled;
-        instr.desc = std::format("B{}{} 0x{:08X}", 
-            l ? "L" : "", cond, (instr.addr + (8 >> m_cpu->m_thumb_enabled)) + nn);
+        std::int32_t nn = (static_cast<std::int32_t>((instr.opcode & 0xFFFFFF) << 8) >> 8) << 2;
+        instr.desc = std::format("B{}{} #{:08X}", 
+            l ? "L" : "", cond, (instr.addr + 8) + nn);
         break;
     }
     case CPU::InstrFormat::BX: {
-        bool l = ((instr.opcode >> 4) & 0xF) == 0x1;
         std::uint8_t rn = instr.opcode & 0xF;
-        instr.desc = std::format("B{}X{} 0x{:08X}",
-            l ? "L" : "", cond, m_cpu->m_regs[rn] & ~2);
+        instr.desc = std::format("BX{} r{}", cond, rn);
         break;
     }
     case CPU::InstrFormat::ALU: {
         const char* set_cc = ((instr.opcode >> 20) & 1) ? "S" : "";
         std::uint8_t rd = (instr.opcode >> 12) & 0xF;
         std::uint8_t rn = (instr.opcode >> 16) & 0xF;
+        std::uint8_t rm = instr.opcode & 0xF;
 
         std::uint32_t op1 = 0;
         std::uint32_t op2 = 0;
@@ -130,74 +133,184 @@ void Debugger::decompile_arm_instr(Instr& instr) {
 
         switch ((instr.opcode >> 21) & 0xF) {
         case 0x0:
-            instr.desc = std::format("AND{}{} r{},r{},0x{:08X}",
-                cond, set_cc, rd, rn, op2);
+            instr.desc = std::format("AND{}{} r{},r{},",
+                cond, set_cc, rd, rn);
             break;
         case 0x1:
-            instr.desc = std::format("EOR{}{} r{},r{},0x{:08X}",
-                cond, set_cc, rd, rn, op2);
+            instr.desc = std::format("EOR{}{} r{},r{},",
+                cond, set_cc, rd, rn);
             break;
         case 0x2:
-            instr.desc = std::format("SUB{}{} r{},r{},0x{:08X}",
-                cond, set_cc, rd, rn, op2);
+            instr.desc = std::format("SUB{}{} r{},r{},",
+                cond, set_cc, rd, rn);
             break;
         case 0x3:
-            instr.desc = std::format("RSB{}{} r{},r{},0x{:08X}",
-                cond, set_cc, rd, rn, op2);
+            instr.desc = std::format("RSB{}{} r{},r{},",
+                cond, set_cc, rd, rn);
             break;
         case 0x4:
-            instr.desc = std::format("ADD{}{} r{},r{},0x{:08X}",
-                cond, set_cc, rd, rn, op2);
+            instr.desc = std::format("ADD{}{} r{},r{},",
+                cond, set_cc, rd, rn);
             break;
         case 0x5:
-            instr.desc = std::format("ADC{}{} r{},r{},0x{:08X}",
-                cond, set_cc, rd, rn, op2);
+            instr.desc = std::format("ADC{}{} r{},r{},",
+                cond, set_cc, rd, rn);
             break;
         case 0x6:
-            instr.desc = std::format("SBC{}{} r{},r{},0x{:08X}",
-                cond, set_cc, rd, rn, op2);
+            instr.desc = std::format("SBC{}{} r{},r{},",
+                cond, set_cc, rd, rn);
             break;
         case 0x7:
-            instr.desc = std::format("RSC{}{} r{},r{},0x{:08X}",
-                cond, set_cc, rd, rn, op2);
+            instr.desc = std::format("RSC{}{} r{},r{},",
+                cond, set_cc, rd, rn);
             break;
         case 0x8:
-            instr.desc = std::format("TST{} r{},0x{:08X}",
-                cond, rn, op2);
+            instr.desc = std::format("TST{} r{},",
+                cond, rn);
             break;
         case 0x9:
-            instr.desc = std::format("TEQ{} r{},0x{:08X}",
-                cond, rn, op2);
+            instr.desc = std::format("TEQ{} r{},",
+                cond, rn);
             break;
         case 0xA:
-            instr.desc = std::format("CMP{} r{},0x{:08X}",
-                cond, rn, op2);
+            instr.desc = std::format("CMP{} r{},",
+                cond, rn);
             break;
         case 0xB:
-            instr.desc = std::format("CMN{} r{},0x{:08X}",
-                cond, rn, op2);
+            instr.desc = std::format("CMN{} r{},",
+                cond, rn);
             break;
         case 0xC:
-            instr.desc = std::format("ORR{}{} r{},r{},0x{:08X}",
-                cond, set_cc, rd, rn, op2);
+            instr.desc = std::format("ORR{}{} r{},r{},",
+                cond, set_cc, rd, rn);
             break;
         case 0xD:
-            instr.desc = std::format("MOV{}{} r{},0x{:08X}",
-                cond, set_cc, rd, op2);
+            instr.desc = std::format("MOV{}{} r{},",
+                cond, set_cc, rd);
             break;
         case 0xE:
-            instr.desc = std::format("BIC{}{} r{},r{},0x{:08X}",
-                cond, set_cc, rd, rn, op2);
+            instr.desc = std::format("BIC{}{} r{},r{},",
+                cond, set_cc, rd, rn);
             break;
         case 0xF:
-            instr.desc = std::format("MVN{}{} r{},0x{:08X}",
-                cond, set_cc, rd, op2);
+            instr.desc = std::format("MVN{}{} r{},",
+                cond, set_cc, rd);
             break;
         default: std::unreachable();
         }
+        instr.desc += ((instr.opcode >> 25) & 1) 
+            ? std::format("#{:08X}", op2) : std::format("r{}", rm);
         break;
     }
-    default: break;
+    case CPU::InstrFormat::SINGLE_TRANSFER: {
+        bool p = (instr.opcode >> 24) & 1;
+        bool i = (instr.opcode >> 25) & 1;
+        bool l = (instr.opcode >> 20) & 1;
+        auto rn = (instr.opcode >> 16) & 0xF;
+        auto rd = (instr.opcode >> 12) & 0xF;
+        const char* b = ((instr.opcode >> 22) & 1) ? "B" : "";
+        const char* u = ((instr.opcode >> 23) & 1) ? "+" : "-";
+        const char* writeback = (!p || (p && ((instr.opcode >> 21) & 1))) ? "!" : "";
+
+        if (l) {
+            instr.desc = std::format("LDR{}{} ", cond, b);
+        } else {
+            instr.desc = std::format("STR{}{} ", cond, b);
+        }
+        instr.desc += std::format("r{},[r{}", rd, rn);
+
+        auto offset = instr.opcode & 0xFFF;
+        auto rm = instr.opcode & 0xF;
+        auto shift_amount = (instr.opcode >> 7) & 0x1F;
+        auto shift_opcode = (instr.opcode >> 5) & 3;
+        if (p) {
+            if (i) {
+                instr.desc += !offset ? "]" : std::format(",#{}{:08X}]{}", u, offset, writeback);
+            } else {
+                instr.desc += std::format(",{}r{},{}#{}]{}", u, rm, shift_type(shift_opcode), shift_amount, writeback);
+            }
+        } else {
+            instr.desc += "],";
+            if (i) {
+                instr.desc += std::format("#{}{:08X}]", u, offset);
+            } else {
+                instr.desc += std::format("{}r{},{}#{}", u, rm, shift_type(shift_opcode), shift_amount);
+            }
+        }
+        break;
+    }
+    case CPU::InstrFormat::HALFWORD_TRANSFER: {
+        // bool p = (instr.opcode >> 24) & 1;
+        // bool i = (instr.opcode >> 25) & 1;
+        bool l = (instr.opcode >> 20) & 1;
+        auto rd = (instr.opcode >> 12) & 0xF;
+        auto rn = (instr.opcode >> 16) & 0xF;
+        auto opcode = (instr.opcode >> 5) & 3;
+
+        if (l) {
+            switch (opcode) {
+            case 1:
+                instr.desc = std::format("STR{}H ", cond);
+                break;
+            case 2:
+                instr.desc = std::format("LDR{}D ", cond);
+                break;
+            case 3:
+                instr.desc = std::format("STR{}D ", cond);
+                break;
+            default: std::unreachable();
+            }
+        } else {
+            switch (opcode) {
+            case 1:
+                instr.desc = std::format("LDR{}H ", cond);
+                break;
+            case 2:
+                instr.desc = std::format("LDR{}SB ", cond);
+                break;
+            case 3:
+                instr.desc = std::format("STR{}SH ", cond);
+                break;
+            default: std::unreachable();
+            }
+        }
+        instr.desc += std::format("r{}, [r{}", rd, rn);
+
+        break;
+    }
+    case CPU::InstrFormat::BLOCK_TRANSFER: {
+        bool l = (instr.opcode >> 20) & 1;
+
+        if (l) {
+            instr.desc = std::format("LDM{}", cond);
+        } else {
+            instr.desc = std::format("STM{}", cond);
+        }
+        break;
+    }
+    case CPU::InstrFormat::MSR: {
+        instr.desc = std::format("MSR{}", cond);
+        break;
+    }
+    case CPU::InstrFormat::MRS: {
+        instr.desc = std::format("MRS");
+        break;
+    }
+    case CPU::InstrFormat::MUL: {
+        // auto rd = (instr.opcode >> 16) & 0xF;
+        // auto rn = (instr.opcode >> 12) & 0xF;
+        // auto rs = (instr.opcode >> 8) & 0xF;
+
+        switch ((instr.opcode >> 21) & 0xF) {
+        default:
+            printf("MUL missing %d\n", (instr.opcode >> 21) & 0xF);
+            std::exit(1);
+        }
+        break;
+    }
+    default:
+        // printf("%hhu\n", m_cpu->m_arm_lut[opcode]);
+        // std::exit(1);
     }
 }
 
@@ -208,7 +321,7 @@ void Debugger::decompile_thumb_instr(Instr& instr) {
         std::uint8_t rs = (instr.opcode >> 3) & 7;
         std::uint32_t offset = (instr.opcode >> 6) & 0x1F;
         instr.desc = std::string(shift_type((instr.opcode >> 11) & 3)) + 'S' + ' '
-            + std::format("r{}, r{}, 0x{:02X}", rd, rs, offset);
+            + std::format("r{},r{},#{:02X}", rd, rs, offset);
         break;
     }
     case CPU::InstrFormat::THUMB_17: {

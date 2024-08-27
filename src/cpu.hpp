@@ -29,11 +29,11 @@ struct Flags {
 
 class Registers {
     public:
-        Registers() : mode(UNSET), m_list({}) {};
+        Registers() : mode(0), m_list({}) {};
 
         Registers(Registers& regs) {
             flags = regs.flags;
-            mode = regs.mode & 0x1F;
+            mode = regs.mode;
             std::copy(regs.m_list.begin(), regs.m_list.end(), m_list.begin());
         }
 
@@ -96,6 +96,8 @@ class CPU {
         bool condition(std::uint32_t instr);
         std::uint32_t get_psr();
         std::uint32_t get_cpsr();
+
+        Registers& get_sys_bank();
 
         int branch(std::uint32_t instr);
         int branch_ex(std::uint32_t instr);
