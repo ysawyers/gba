@@ -94,10 +94,19 @@ class CPU {
         );
 
         bool condition(std::uint32_t instr);
-        std::uint32_t get_psr();
-        std::uint32_t get_cpsr();
 
+        std::uint32_t get_cpsr();
+        std::uint32_t get_psr();
         Registers& get_sys_bank();
+
+        /*
+            This will directly update the banked SYS registers because even if the current
+            register bank is SYS, a mode switch will immediately discard that data. 
+            In that event the current SYS register bank will write over the banked SYS registers
+            and the banked SYS cpsr register will have its dirty mode bits overwritten by the new
+            mode.
+        */
+        void update_cpsr_mode(std::uint8_t new_mode);
 
         int branch(std::uint32_t instr);
         int branch_ex(std::uint32_t instr);
@@ -130,7 +139,7 @@ class CPU {
         void initialize_registers();
         std::uint32_t ror(std::uint32_t operand, std::size_t shift_amount);
         Registers& get_bank(std::uint8_t mode);
-        void change_bank(std::uint8_t new_mode);
+        
         void safe_reg_assign(std::uint8_t reg, std::uint32_t value);
 
         std::array<InstrFormat, 4096> m_arm_lut = ([]() constexpr -> auto {

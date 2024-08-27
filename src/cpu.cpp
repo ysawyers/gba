@@ -24,6 +24,11 @@ void CPU::initialize_registers() {
     m_regs[15] = 0x08000000;
 }
 
+Registers& CPU::get_sys_bank() {
+    std::uint8_t mode_bits = m_banked_regs[SYS].mode & 0x1F;
+    return ((mode_bits == 0x1F) || (mode_bits == 0x10)) ? m_regs : m_banked_regs[SYS];
+}
+
 Registers& CPU::get_bank(std::uint8_t mode) {
     switch (mode) {
     case 0b10000:
@@ -37,7 +42,21 @@ Registers& CPU::get_bank(std::uint8_t mode) {
     }
 }
 
-void CPU::change_bank(std::uint8_t new_mode) {
+std::uint32_t CPU::get_psr() {
+    std::uint8_t flags = (m_regs.flags.n << 3) | (m_regs.flags.z << 2) | (m_regs.flags.c << 1) | m_regs.flags.v;
+    return static_cast<std::uint32_t>(flags << 28) | m_regs.mode;
+}
+
+std::uint32_t CPU::get_cpsr() {
+    auto& sys = get_sys_bank();
+    std::uint8_t flags = (sys.flags.n << 3) | (sys.flags.z << 2) | (sys.flags.c << 1) | sys.flags.v;
+    return static_cast<std::uint32_t>(flags << 28) | sys.mode;
+}
+
+void CPU::update_cpsr_mode(std::uint8_t new_mode) {
+    // mask off other bits, only want to change the mode bits here
+    new_mode &= 0x1F;
+
     get_bank(m_banked_regs[SYS].mode) = m_regs;
     switch (new_mode) {
     case 0b10000:
@@ -66,23 +85,7 @@ void CPU::change_bank(std::uint8_t new_mode) {
     }
     default: std::unreachable();
     }
-    m_banked_regs[SYS].mode = new_mode;
-}
-
-Registers& CPU::get_sys_bank() {
-    std::uint8_t mode_bits = m_banked_regs[SYS].mode & 0x1F;
-    return ((mode_bits == 0x1F) || (mode_bits == 0x10)) ? m_regs : m_banked_regs[SYS];
-}
-
-std::uint32_t CPU::get_psr() {
-    std::uint8_t flags = (m_regs.flags.n << 3) | (m_regs.flags.z << 2) | (m_regs.flags.c << 1) | m_regs.flags.v;
-    return static_cast<std::uint32_t>(flags << 28) | (static_cast<std::uint32_t>(m_thumb_enabled) << 5) | m_regs.mode;
-}
-
-std::uint32_t CPU::get_cpsr() {
-    auto& sys = get_sys_bank();
-    std::uint8_t flags = (sys.flags.n << 3) | (sys.flags.z << 2) | (sys.flags.c << 1) | sys.flags.v;
-    return static_cast<std::uint32_t>(flags << 28) | (static_cast<std::uint32_t>(m_thumb_enabled) << 5) | sys.mode;
+    m_banked_regs[SYS].mode = (m_banked_regs[SYS].mode & ~0x1F) | new_mode;
 }
 
 std::uint32_t CPU::ror(std::uint32_t operand, std::size_t shift_amount) {
@@ -91,7 +94,6 @@ std::uint32_t CPU::ror(std::uint32_t operand, std::size_t shift_amount) {
 
 void CPU::safe_reg_assign(std::uint8_t reg, std::uint32_t value) {
     m_pipeline_invalid |= (reg == 0xF);
-    // ALU code needs to go here.
     m_regs[reg] = value;
     m_regs[15] = m_regs[15] & ~(0b01 | (0b10 * !m_thumb_enabled));
 }
@@ -182,6 +184,8 @@ int CPU::branch(std::uint32_t instr) {
 int CPU::branch_ex(std::uint32_t instr) {
     std::uint8_t rn = instr & 0xF;
     m_thumb_enabled = m_regs[rn] & 1;
+    auto& sys = get_sys_bank();
+    sys.mode = (static_cast<std::uint8_t>(m_thumb_enabled) << 5) | (sys.mode & 0x1F);
     m_regs[15] = m_regs[rn] & ~(0b1 | (!m_thumb_enabled * 0b10));
     m_pipeline_invalid = true;
     return 1;
@@ -307,10 +311,10 @@ int CPU::block_transfer(std::uint32_t instr) {
     std::uint8_t prev_mode = 0;
     if (s) {
         if (l && ((reg_list >> 15) & 1)) {
-            change_bank(m_regs.mode);
+            update_cpsr_mode(m_regs.mode);
         } else {
             prev_mode = m_banked_regs[SYS].mode;
-            change_bank(0x1F);
+            update_cpsr_mode(0x1F);
         }
     }
 
@@ -361,7 +365,7 @@ int CPU::block_transfer(std::uint32_t instr) {
     }
 
     if (prev_mode) {
-        change_bank(prev_mode);
+        update_cpsr_mode(prev_mode);
     }
     return 1;
 }
@@ -400,8 +404,8 @@ int CPU::msr(std::uint32_t instr) {
             m_regs.flags.v = (flags >> 28) & 1;
         }
         if (c) {
-            if (m_banked_regs[SYS].mode == 0x1F || m_banked_regs[SYS].mode == 0x10) {
-                change_bank(mode);
+            if (((m_banked_regs[SYS].mode & 0x1F) == 0x1F) || ((m_banked_regs[SYS].mode & 0x1F) == 0x10)) {
+                update_cpsr_mode(mode);
             } else {
                 m_regs.mode = mode;
             }
@@ -415,20 +419,22 @@ int CPU::msr(std::uint32_t instr) {
             sys.flags.v = (flags >> 28) & 1;
         }
         if (c) {
-            change_bank(mode);
+            update_cpsr_mode(mode);
         }
     }
     return 1;
 }
 
 int CPU::swi(std::uint32_t instr) {
-    m_banked_regs[SVC].mode = m_banked_regs[SYS].mode;
-    m_banked_regs[SVC].flags = m_banked_regs[SYS].flags;
-    change_bank(0x13);
+    auto& sys = get_sys_bank();
+    m_banked_regs[SVC].mode = sys.mode;
+    m_banked_regs[SVC].flags = sys.flags;
+    update_cpsr_mode(0x13);
     m_regs[14] = m_regs[15] - (4 >> m_thumb_enabled);
     m_regs[15] = 0x00000008;
     m_pipeline_invalid = true;
     m_thumb_enabled = false;
+    m_banked_regs[SYS].mode &= 0x1F;
     return 1;
 }
 
@@ -494,8 +500,13 @@ int CPU::alu(std::uint32_t instr) {
     get_alu_operands(instr, op1, op2, carry_out);
 
     if ((rd == 0xF) && set_cc) [[unlikely]] {
+        // TODO: why are these values different??
+        printf("%02X\n", get_bank(m_banked_regs[SYS].mode).mode);
+        printf("%02X\n", m_regs.mode);
+
         // restore the correct T bit to cpsr if we're changing to USR/SYS
-        change_bank(m_regs.mode);
+        update_cpsr_mode(m_regs.mode);
+        std::exit(1);
     }
 
     switch ((instr >> 21) & 0xF) {
@@ -1069,8 +1080,6 @@ FrameBuffer& CPU::view_current_frame() {
 }
 
 FrameBuffer& CPU::render_frame(std::uint16_t key_input, std::uint32_t breakpoint, bool& breakpoint_reached) {
-    breakpoint = 0x17C;
-
     m_mem.m_key_input = key_input;
     int cycles = 0;
     while (cycles < CYCLES_PER_FRAME) {
