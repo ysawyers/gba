@@ -5,9 +5,7 @@
 #include <vector>
 #include <memory>
 
-class InstrFormat;
-class Registers;
-class CPU;
+#include "core/cpu.hpp"
 
 class Debugger {
     public:
@@ -21,7 +19,7 @@ class Debugger {
             std::string desc;
         };
 
-        Registers& view_registers();
+        CPU::Registers& view_registers();
         std::uint32_t view_cpsr();
         std::uint32_t view_psr();
 

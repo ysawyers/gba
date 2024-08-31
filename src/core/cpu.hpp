@@ -5,51 +5,40 @@
 #include <unordered_map>
 #include <map>
 
-#include "../debugger.hpp"
-
 #include "memory.hpp"
 
-// used as indices for banked registers in CPU
-enum Mode {
-    SYS = 0, FIQ, SVC, ABT, IRQ, UND, UNSET
-};
-
-struct Flags {
-    Flags() : n(0), z(0), c(0), v(0) {};
-
-    Flags(Flags& flags) {
-        n = 1;
-        z = 1;
-        c = 1;
-        v = 1;
-    }
-
-    std::uint8_t n, z, c, v;
-};
-
-class Registers {
-    public:
-        Registers() : control(0), m_list({}) {};
-
-        Registers(Registers& regs) {
-            flags = regs.flags;
-            control = regs.control;
-            std::copy(regs.m_list.begin(), regs.m_list.end(), m_list.begin());
-        }
-
-        std::uint32_t& operator[](std::uint8_t reg) {
-            return m_list[reg];
-        }
-
-        Flags flags;
-        std::uint8_t control;
-
-    private:
-        std::array<std::uint32_t, 16> m_list{};
-};
+class Debugger;
 
 class CPU {
     public:
+        struct Flags {
+            std::uint8_t n;
+            std::uint8_t z;
+            std::uint8_t c;
+            std::uint8_t v;
+        };
+
+        class Registers {
+            public:
+                Registers() : m_control(0), m_list({}) {};
+
+                Registers(Registers& regs) {
+                    m_flags = regs.m_flags;
+                    m_control = regs.m_control;
+                    std::copy(regs.m_list.begin(), regs.m_list.end(), m_list.begin());
+                }
+
+                std::uint32_t& operator[](std::uint8_t reg) {
+                    return m_list[reg];
+                }
+
+                Flags m_flags;
+                std::uint8_t m_control;
+
+            private:
+                std::array<std::uint32_t, 16> m_list{};
+        };
+
         CPU(const std::string& rom_filepath);
 
         FrameBuffer& render_frame(std::uint16_t key_input, std::uint32_t breakpoint, bool& breakpoint_reached);
@@ -61,6 +50,11 @@ class CPU {
         friend class Debugger;
 
     private:
+        // used as indices for banked registers in CPU
+        enum Mode {
+            SYS = 0, FIQ, SVC, ABT, IRQ, UND
+        };
+
         enum class ShiftType {
             LSL = 0, LSR, ASR, ROR 
         };

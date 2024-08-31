@@ -2,9 +2,7 @@
 
 #include <format>
 
-#include "core/cpu.hpp"
-
-Registers& Debugger::view_registers() {
+CPU::Registers& Debugger::view_registers() {
     return m_cpu->m_regs;
 }
 
@@ -360,10 +358,10 @@ std::array<Debugger::Instr, 64> Debugger::view_nearby_instructions() {
         int idx = (addr - start) / (4 >> m_cpu->m_thumb_enabled);
         instrs[idx].addr = addr;
         if (m_cpu->m_thumb_enabled) {
-            instrs[idx].opcode = m_cpu->m_mem.read_halfword(addr);
+            instrs[idx].opcode = m_cpu->m_mem.read<std::uint16_t>(addr);
             decompile_thumb_instr(instrs[idx]);
         } else {
-            instrs[idx].opcode = m_cpu->m_mem.read_word(addr);
+            instrs[idx].opcode = m_cpu->m_mem.read<std::uint32_t>(addr);
             decompile_arm_instr(instrs[idx]);
         }
     }

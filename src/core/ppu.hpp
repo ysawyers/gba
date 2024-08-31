@@ -8,7 +8,7 @@ typedef std::array<std::array<std::uint16_t, 240>, 160> FrameBuffer;
 
 class PPU {
     public:
-        PPU() : m_vcount(0), m_scanline_cycles(0) {
+        PPU(std::uint8_t* mmio) : m_vcount(0), m_scanline_cycles(0), m_mmio(mmio) {
             m_vram.resize(0x18000);
             m_oam.resize(0x400);
             m_pallete_ram.resize(0x400);
@@ -24,7 +24,7 @@ class PPU {
         std::vector<std::uint8_t> m_vram;
         std::vector<std::uint8_t> m_oam;
         std::vector<std::uint8_t> m_pallete_ram;
-        std::array<std::uint8_t, 0x56> m_mmio{};
+        std::uint8_t* m_mmio;
 
     private:
 
