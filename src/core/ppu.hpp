@@ -8,7 +8,7 @@ typedef std::array<std::array<std::uint16_t, 240>, 160> FrameBuffer;
 
 class PPU {
     public:
-        PPU(std::uint8_t* mmio) : m_vcount(0), m_scanline_cycles(0), m_mmio(mmio) {
+        PPU(std::uint8_t* mmio) : m_vcount(0), m_mmio(mmio), m_scanline_cycles(0) {
             m_vram.resize(0x18000);
             m_oam.resize(0x400);
             m_pallete_ram.resize(0x400);
@@ -20,14 +20,12 @@ class PPU {
 
         FrameBuffer m_frame{{}};
         std::uint16_t m_vcount;
-        std::uint32_t m_scanline_cycles;
         std::vector<std::uint8_t> m_vram;
         std::vector<std::uint8_t> m_oam;
         std::vector<std::uint8_t> m_pallete_ram;
         std::uint8_t* m_mmio;
 
     private:
-
         std::uint16_t get_tile_offset(int tx, int ty, bool bg_reg_64x64);
 
         void render_text_bg(std::uint16_t bgcnt, std::uint16_t bghofs, std::uint16_t bgvofs);
@@ -40,6 +38,8 @@ class PPU {
         void scanline_bitmap_5();
 
         std::uint16_t get_dispcnt();
+
+        std::uint32_t m_scanline_cycles;
 };
 
 #endif

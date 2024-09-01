@@ -68,10 +68,11 @@ void CPU::update_cpsr_mode(std::uint8_t mode_bits) {
     m_banked_regs[SYS].m_control = (m_banked_regs[SYS].m_control & ~0x1F) | mode_bits;
 
     switch (mode_bits) {
+    case 0b10010: // IRQ
+        m_banked_regs[SYS].m_control |= (1 << 7);
     case 0b10000: // USR
     case 0b11111: // SYS
     case 0b10011: // SVC
-    case 0b10010: // IRQ
     case 0b11011: // UND
     case 0b10111: // ABT
     {
@@ -113,6 +114,11 @@ void CPU::update_cpsr_thumb_status(bool enabled) {
     auto& sys = sys_bank();
     sys.m_control = (sys.m_control & ~(1 << 5)) | (static_cast<std::uint8_t>(enabled) << 5);
     m_thumb_enabled = enabled;
+}
+
+void CPU::update_cpsr_irq_disable(bool disabled) {
+    auto& sys = sys_bank();
+    sys.m_control = (sys.m_control & ~(1 << 7)) | (static_cast<std::uint8_t>(disabled) << 7);
 }
 
 std::uint32_t CPU::ror(std::uint32_t operand, std::size_t shift_amount) {
@@ -419,8 +425,6 @@ int CPU::msr(std::uint32_t instr) {
     std::uint32_t flags = operand & 0xFF000000;
     std::uint32_t mode = operand & 0x000000FF;
 
-    // TODO: handle the IRQ disable bit
-
     if (psr) {
         if (f) {
             m_regs.m_flags.n = flags >> 31;
@@ -431,6 +435,7 @@ int CPU::msr(std::uint32_t instr) {
         if (c) {
             if (((m_banked_regs[SYS].m_control & 0x1F) == 0x1F) || ((m_banked_regs[SYS].m_control & 0x1F) == 0x10)) {
                 update_cpsr_mode(mode & 0x1F);
+                update_cpsr_irq_disable((mode >> 7) & 1);
             } else {
                 m_regs.m_control = mode;
             }
@@ -445,6 +450,7 @@ int CPU::msr(std::uint32_t instr) {
         }
         if (c) {
             update_cpsr_mode(mode & 0x1F);
+            update_cpsr_irq_disable((mode >> 7) & 1);
         }
     }
     return 1;
@@ -527,9 +533,11 @@ int CPU::alu(std::uint32_t instr) {
     get_alu_operands(instr, op1, op2, carry_out);
 
     if ((rd == 0xF) && set_cc) [[unlikely]] {
+        bool prev_irq_disable = (m_regs.m_control >> 7) & 1;
         bool prev_thumb_status = (m_regs.m_control >> 5) & 1;
         update_cpsr_mode(m_regs.m_control & 0x1F);
         update_cpsr_thumb_status(prev_thumb_status);
+        update_cpsr_irq_disable(prev_irq_disable);
     }
 
     switch ((instr >> 21) & 0xF) {
@@ -914,18 +922,35 @@ FrameBuffer& CPU::view_current_frame() {
     return m_mem.get_frame();
 }
 
+void CPU::service_interrupts() {
+    const auto& sys = sys_bank();
+    auto interrupts = m_mem.pending_interrupts((sys.m_control >> 7) & 1);
+    for (int i = 0; i < 16; i++) {
+        if ((interrupts >> i) & 1) {
+            /*
+            Switches state to IRQ mode, bank-swaps the current stack register and link register (thus preserving their old values), saves the CPSR in SPSR_irq, and sets bit 7 (interrupt disable) in the CPSR.
+            Saves the address of the next instruction in LR_irq compensating for Thumb/ARM depending on the mode you are in.
+            Switches to ARM state, executes code in BIOS at a hardware interrupt vector (which you, the programmer, never see)
+            */
+            printf("service the interrupt!\n");
+            std::exit(1);
+        }
+    }
+}
+
 FrameBuffer& CPU::render_frame(std::uint16_t key_input, std::uint32_t breakpoint, bool& breakpoint_reached) {
     m_mem.m_key_input = key_input;
 
-    int cycles = 0;
-    while (cycles < CYCLES_PER_FRAME) {
+    int total_cycles = 0;
+    while (total_cycles < CYCLES_PER_FRAME) {
         if (breakpoint == m_regs[15]) [[unlikely]] {
             breakpoint_reached = true;
             return m_mem.get_frame();
         }
-        int instr_cycles = execute();
-        m_mem.tick_components(instr_cycles);
-        cycles += instr_cycles;
+        int cycles = execute();
+        m_mem.tick_components(cycles);
+        service_interrupts();        
+        total_cycles += cycles;
     }
     return m_mem.get_frame();
 }

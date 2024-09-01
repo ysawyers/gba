@@ -130,6 +130,8 @@ class Memory {
         void tick_components(int cycles);
         void reset_components();
 
+        std::uint16_t pending_interrupts(bool irq_disabled);
+
         FrameBuffer& get_frame();
 
         std::uint16_t m_key_input;

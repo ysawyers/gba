@@ -69,9 +69,11 @@ class CPU {
         };
 
         bool condition(std::uint32_t instr);
+
         std::uint32_t fetch_arm();
         std::uint16_t fetch_thumb();
         int execute();
+        void service_interrupts();
 
         bool barrel_shifter(
             std::uint32_t& op,
@@ -94,6 +96,7 @@ class CPU {
 
         void update_cpsr_mode(std::uint8_t mode_bits);
         void update_cpsr_thumb_status(bool enabled);
+        void update_cpsr_irq_disable(bool disabled);
 
         int branch(std::uint32_t instr);
         int branch_ex(std::uint32_t instr);

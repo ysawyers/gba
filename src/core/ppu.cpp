@@ -127,6 +127,8 @@ void PPU::scanline_bitmap_5() {
 }
 
 void PPU::tick(int cycles) {
+    std::uint16_t* dispstat = reinterpret_cast<std::uint16_t*>(m_mmio + 0x004);
+
     for (int i = 0; i < cycles; i++) {
         m_scanline_cycles += 1;
 
@@ -143,14 +145,25 @@ void PPU::tick(int cycles) {
             // end of scanline
             m_scanline_cycles = 0;
             m_vcount += 1;
+
+            // TODO: vcount interrupt
+
             if (m_vcount == frame_height) {
-                *reinterpret_cast<std::uint16_t*>(m_mmio + 4) |= 3;
+                // entering vblank
+                *dispstat |= 3;
+                if ((*dispstat >> 3) & 1) {
+                    *reinterpret_cast<std::uint16_t*>(m_mmio + 0x202) |= 1;
+                }
             } else {
-                *reinterpret_cast<std::uint16_t*>(m_mmio + 4) &= ~3;
+                // entering hdraw
+                *dispstat &= ~3;
             }
         } else if (m_scanline_cycles == 1004) {
             // hblank
-            *reinterpret_cast<std::uint16_t*>(m_mmio + 4) |= 2;
+            *dispstat |= 2;
+            if ((*dispstat >> 4) & 1) {
+                *reinterpret_cast<std::uint16_t*>(m_mmio + 0x202) |= 2;
+            }
         } else if (m_scanline_cycles == 960) {
             // hdraw
             auto dispcnt = get_dispcnt();
