@@ -2,6 +2,8 @@
 
 #include <format>
 
+#include "core/cpu.hpp"
+
 CPU::Registers& Debugger::view_registers() {
     return m_cpu->m_regs;
 }
@@ -12,6 +14,14 @@ std::uint32_t Debugger::view_cpsr() {
 
 std::uint32_t Debugger::view_psr() {
     return m_cpu->get_psr();
+}
+
+std::uint16_t Debugger::view_ie() {
+    return m_cpu->m_mem.read<std::uint16_t>(0x04000200);
+}
+
+std::uint16_t Debugger::view_if() {
+    return m_cpu->m_mem.read<std::uint16_t>(0x04000202);
 }
 
 std::uint32_t Debugger::current_pc() {
@@ -207,7 +217,7 @@ void Debugger::decompile_arm_instr(Instr& instr) {
         auto rn = (instr.opcode >> 16) & 0xF;
         auto rd = (instr.opcode >> 12) & 0xF;
         const char* b = ((instr.opcode >> 22) & 1) ? "B" : "";
-        const char* u = ((instr.opcode >> 23) & 1) ? "+" : "-";
+        const char* u = ((instr.opcode >> 23) & 1) ? "" : "-";
         const char* writeback = (!p || (p && ((instr.opcode >> 21) & 1))) ? "!" : "";
 
         if (l) {
@@ -222,14 +232,14 @@ void Debugger::decompile_arm_instr(Instr& instr) {
         auto shift_amount = (instr.opcode >> 7) & 0x1F;
         auto shift_opcode = (instr.opcode >> 5) & 3;
         if (p) {
-            if (i) {
+            if (!i) {
                 instr.desc += !offset ? "]" : std::format(",#{}{:08X}]{}", u, offset, writeback);
             } else {
                 instr.desc += std::format(",{}r{},{}#{}]{}", u, rm, shift_type(shift_opcode), shift_amount, writeback);
             }
         } else {
             instr.desc += "],";
-            if (i) {
+            if (!i) {
                 instr.desc += std::format("#{}{:08X}]", u, offset);
             } else {
                 instr.desc += std::format("{}r{},{}#{}", u, rm, shift_type(shift_opcode), shift_amount);

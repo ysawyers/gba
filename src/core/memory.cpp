@@ -31,7 +31,7 @@ void Memory::load_rom(const std::string& rom_filepath) {
     fclose(fp);
 }
 
-std::uint16_t Memory::pending_interrupts(bool irq_disabled) {
+bool Memory::pending_interrupts(bool irq_disabled) {
     bool ime = m_mmio[0x208] & 1;
     if (ime && !irq_disabled) {
         std::uint32_t if_ie = *reinterpret_cast<std::uint32_t*>(m_mmio.data() + 0x200);
@@ -48,7 +48,8 @@ void Memory::reset_components() {
     m_ewram.clear();
     m_iwram.clear();
     m_key_input = 0xFFFF;
-    // m_ppu = {};
+    m_mmio = {};
+    m_ppu = {m_mmio.data()};
 }
 
 FrameBuffer& Memory::get_frame() {

@@ -15,6 +15,7 @@ class Memory {
             m_ewram.resize(0x40000);
             m_iwram.resize(0x8000);
             m_rom.resize(0x2000000);
+            m_sram.resize(0xFFFF);
         }
 
         void load_bios();
@@ -62,9 +63,7 @@ class Memory {
             case 0x0B:
             case 0x0C:
             case 0x0D: return *reinterpret_cast<T*>(m_rom.data() + ((addr - 0x08000000) & 0x1FFFFFF));
-            case 0x0E:
-                printf("cart ram\n");
-                exit(1);
+            case 0x0E: return *reinterpret_cast<T*>(m_sram.data() - 0x0E000000);
             }
             return 0;
         }
@@ -122,15 +121,15 @@ class Memory {
                 }
                 break;
             case 0x0E:
-                printf("cart ram write unhandled\n");
-                exit(1);
+                *reinterpret_cast<T*>(m_sram.data() - 0x0E000000) = value;
+                break;
             }
         }
 
         void tick_components(int cycles);
         void reset_components();
 
-        std::uint16_t pending_interrupts(bool irq_disabled);
+        bool pending_interrupts(bool irq_disabled);
 
         FrameBuffer& get_frame();
 
@@ -141,6 +140,7 @@ class Memory {
         std::vector<std::uint8_t> m_ewram;
         std::vector<std::uint8_t> m_iwram;
         std::vector<std::uint8_t> m_rom;
+        std::vector<std::uint8_t> m_sram;
 
         std::array<std::uint8_t, 0x304> m_mmio{};
         PPU m_ppu;

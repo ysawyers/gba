@@ -22,6 +22,8 @@ class Debugger {
         CPU::Registers& view_registers();
         std::uint32_t view_cpsr();
         std::uint32_t view_psr();
+        std::uint16_t view_if();
+        std::uint16_t view_ie();
 
         std::uint32_t current_pc();
         std::array<Instr, 64> view_nearby_instructions();

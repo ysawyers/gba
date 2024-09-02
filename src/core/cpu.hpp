@@ -43,7 +43,7 @@ class CPU {
 
         FrameBuffer& render_frame(std::uint16_t key_input, std::uint32_t breakpoint, bool& breakpoint_reached);
         FrameBuffer& view_current_frame();
-        void step();
+        int step();
 
         void reset();
 
@@ -73,7 +73,6 @@ class CPU {
         std::uint32_t fetch_arm();
         std::uint16_t fetch_thumb();
         int execute();
-        void service_interrupts();
 
         bool barrel_shifter(
             std::uint32_t& op,

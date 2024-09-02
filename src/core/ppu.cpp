@@ -33,7 +33,13 @@ void PPU::render_text_bg(std::uint16_t bgcnt, std::uint16_t bghofs, std::uint16_
     auto tile_map_base = m_vram.data() + (((bgcnt >> 0x8) & 0x1F) * 0x800);
     bool bg_reg_64x64 = ((bgcnt >> 0xE) & 3) == 3;
     bool color_pallete = (bgcnt >> 7) & 1;
+    bool mosaic_enable = (bgcnt >> 6) & 1;
     auto bpp = 4 << color_pallete;
+
+    if (mosaic_enable) {
+        printf("implement mosaic\n");
+        std::exit(1);
+    }
 
     auto tx = ((bghofs & ~7) / 8) & (tm_width - 1);
     auto ty = (((m_vcount + bgvofs) & ~7) / 8) & (tm_height - 1);
@@ -146,7 +152,11 @@ void PPU::tick(int cycles) {
             m_scanline_cycles = 0;
             m_vcount += 1;
 
-            // TODO: vcount interrupt
+            if ((*dispstat >> 5) & 1) {
+                if (m_vcount == ((*dispstat >> 8) & 0xFF)) {
+                    *reinterpret_cast<std::uint16_t*>(m_mmio + 0x202) |= 4;
+                }
+            }
 
             if (m_vcount == frame_height) {
                 // entering vblank

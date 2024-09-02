@@ -200,6 +200,24 @@ void Window::render_debug_window() {
             m_cpu->step();
         }
     }
+    ImGui::SameLine();
+    if (m_breakpoint_reached && ImGui::Button("Step 100")) {
+        for (int i = 0; i < 100; i++) {
+            m_cpu->step();
+        }
+    }
+    ImGui::SameLine();
+    if (m_breakpoint_reached && ImGui::Button("Step 1000")) {
+        for (int i = 0; i < 1000; i++) {
+            m_cpu->step();
+        }
+    }
+    ImGui::SameLine();
+    if (m_breakpoint_reached && ImGui::Button("Step 281900")) {
+        for (int i = 0; i < 281900; i++) {
+            m_cpu->step();
+        }
+    }
     ImGui::Spacing();
 
     if (ImGui::BeginTable("registers", 2)) {
@@ -212,11 +230,19 @@ void Window::render_debug_window() {
                 ImGui::Text("r%d: 0x%08X", reg, regs[reg]);
             }
         }
+
         ImGui::TableNextRow();
         ImGui::TableSetColumnIndex(0);
         ImGui::Text("cpsr: 0x%08X", m_debugger->view_cpsr());
         ImGui::TableSetColumnIndex(1);
         ImGui::Text("psr: 0x%08X", m_debugger->view_psr());
+
+        ImGui::TableNextRow();
+        ImGui::TableSetColumnIndex(0);
+        ImGui::Text("ie: 0x%08X", m_debugger->view_ie());
+        ImGui::TableSetColumnIndex(1);
+        ImGui::Text("if: 0x%08X", m_debugger->view_if());
+
         ImGui::EndTable();
     }
 
