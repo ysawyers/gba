@@ -16,16 +16,26 @@ std::uint32_t Debugger::view_psr() {
     return m_cpu->get_psr();
 }
 
+// TODO: merge into single function
 std::uint16_t Debugger::view_ie() {
     return m_cpu->m_mem.read<std::uint16_t>(0x04000200);
 }
-
 std::uint16_t Debugger::view_if() {
     return m_cpu->m_mem.read<std::uint16_t>(0x04000202);
 }
 
 std::uint32_t Debugger::current_pc() {
     return m_cpu->m_regs[15] - ((4 >> m_cpu->m_thumb_enabled) * !m_cpu->m_pipeline_invalid);
+}
+
+const char* Debugger::amod(std::uint8_t pu) {
+    switch (pu) {
+    case 0b11: return "IB";
+    case 0b01: return "IA";
+    case 0b10: return "DB";
+    case 0b00: return "DA";
+    default: std::unreachable();
+    }
 }
 
 const char* Debugger::condition(std::uint32_t instr) {
@@ -108,6 +118,222 @@ const char* Debugger::swi_subroutine(std::uint32_t nn) {
     }
 }
 
+void Debugger::print_alu(Instr& instr) {
+    const char* cond = condition(instr.opcode);
+    const char* set_cc = ((instr.opcode >> 20) & 1) ? "S" : "";
+    std::uint8_t rd = (instr.opcode >> 12) & 0xF;
+    std::uint8_t rn = (instr.opcode >> 16) & 0xF;
+    std::uint8_t rm = instr.opcode & 0xF;
+
+    std::uint32_t op1 = 0;
+    std::uint32_t op2 = 0;
+    bool carry = false;
+    m_cpu->get_alu_operands(instr.opcode, op1, op2, carry);
+
+    switch ((instr.opcode >> 21) & 0xF) {
+    case 0x0:
+        instr.desc = std::format("AND{}{} r{},r{},",
+            cond, set_cc, rd, rn);
+        break;
+    case 0x1:
+        instr.desc = std::format("EOR{}{} r{},r{},",
+            cond, set_cc, rd, rn);
+        break;
+    case 0x2:
+        instr.desc = std::format("SUB{}{} r{},r{},",
+            cond, set_cc, rd, rn);
+        break;
+    case 0x3:
+        instr.desc = std::format("RSB{}{} r{},r{},",
+            cond, set_cc, rd, rn);
+        break;
+    case 0x4:
+        instr.desc = std::format("ADD{}{} r{},r{},",
+            cond, set_cc, rd, rn);
+        break;
+    case 0x5:
+        instr.desc = std::format("ADC{}{} r{},r{},",
+            cond, set_cc, rd, rn);
+        break;
+    case 0x6:
+        instr.desc = std::format("SBC{}{} r{},r{},",
+            cond, set_cc, rd, rn);
+        break;
+    case 0x7:
+        instr.desc = std::format("RSC{}{} r{},r{},",
+            cond, set_cc, rd, rn);
+        break;
+    case 0x8:
+        instr.desc = std::format("TST{} r{},",
+            cond, rn);
+        break;
+    case 0x9:
+        instr.desc = std::format("TEQ{} r{},",
+            cond, rn);
+        break;
+    case 0xA:
+        instr.desc = std::format("CMP{} r{},",
+            cond, rn);
+        break;
+    case 0xB:
+        instr.desc = std::format("CMN{} r{},",
+            cond, rn);
+        break;
+    case 0xC:
+        instr.desc = std::format("ORR{}{} r{},r{},",
+            cond, set_cc, rd, rn);
+        break;
+    case 0xD:
+        instr.desc = std::format("MOV{}{} r{},",
+            cond, set_cc, rd);
+        break;
+    case 0xE:
+        instr.desc = std::format("BIC{}{} r{},r{},",
+            cond, set_cc, rd, rn);
+        break;
+    case 0xF:
+        instr.desc = std::format("MVN{}{} r{},",
+            cond, set_cc, rd);
+        break;
+    default: std::unreachable();
+    }
+    instr.desc += ((instr.opcode >> 25) & 1) 
+        ? std::format("#{:08X}", op2) : std::format("r{}", rm);
+}
+
+void Debugger::print_single_transfer(Instr& instr) {
+    const char* cond = condition(instr.opcode);
+    bool p = (instr.opcode >> 24) & 1;
+    bool i = (instr.opcode >> 25) & 1;
+    bool l = (instr.opcode >> 20) & 1;
+    auto rn = (instr.opcode >> 16) & 0xF;
+    auto rd = (instr.opcode >> 12) & 0xF;
+    const char* b = ((instr.opcode >> 22) & 1) ? "B" : "";
+    const char* u = ((instr.opcode >> 23) & 1) ? "" : "-";
+    const char* writeback = (!p || (p && ((instr.opcode >> 21) & 1))) ? "!" : "";
+
+    if (l) {
+        instr.desc = std::format("LDR{}{} ", cond, b);
+    } else {
+        instr.desc = std::format("STR{}{} ", cond, b);
+    }
+    instr.desc += std::format("r{},[r{}", rd, rn);
+
+    auto offset = instr.opcode & 0xFFF;
+    auto rm = instr.opcode & 0xF;
+    auto shift_amount = (instr.opcode >> 7) & 0x1F;
+    auto shift_opcode = (instr.opcode >> 5) & 3;
+    if (p) {
+        if (!i) {
+            instr.desc += !offset ? "]" : std::format(",#{}{:08X}]{}", u, offset, writeback);
+        } else {
+            instr.desc += std::format(",{}r{},{}#{}]{}", u, rm, shift_type(shift_opcode), shift_amount, writeback);
+        }
+    } else {
+        instr.desc += "],";
+        if (!i) {
+            instr.desc += std::format("#{}{:08X}", u, offset);
+        } else {
+            instr.desc += std::format("{}r{},{}#{}", u, rm, shift_type(shift_opcode), shift_amount);
+        }
+    }
+}
+
+void Debugger::print_halfword_transfer(Instr& instr) {
+    const char* cond = condition(instr.opcode);
+    bool p = (instr.opcode >> 24) & 1;
+    bool i = (instr.opcode >> 22) & 1;
+    bool w = (instr.opcode >> 21) & 1;
+    bool l = (instr.opcode >> 20) & 1;
+    auto rd = (instr.opcode >> 12) & 0xF;
+    auto rn = (instr.opcode >> 16) & 0xF;
+    auto opcode = (instr.opcode >> 5) & 3;
+
+    if (l) {
+        switch (opcode) {
+        case 1:
+            instr.desc = std::format("STR{}H ", cond);
+            break;
+        case 2:
+            instr.desc = std::format("LDR{}D ", cond);
+            break;
+        case 3:
+            instr.desc = std::format("STR{}D ", cond);
+            break;
+        default: std::unreachable();
+        }
+    } else {
+        switch (opcode) {
+        case 1:
+            instr.desc = std::format("LDR{}H ", cond);
+            break;
+        case 2:
+            instr.desc = std::format("LDR{}SB ", cond);
+            break;
+        case 3:
+            instr.desc = std::format("STR{}SH ", cond);
+            break;
+        default: std::unreachable();
+        }
+    }
+    instr.desc += std::format("r{},[r{}", rd, rn);
+
+    std::uint8_t rm_or_offset = instr.opcode & 0xF;
+    std::uint8_t offset = (((instr.opcode >> 8) & 0xF) << 4) | rm_or_offset;
+    const char* u = (instr.opcode >> 23) & 1 ? "" : "-";
+    const char* writeback = (p && w) || !p ? "!" : "";
+
+    if (p) {
+        if (!i) {
+            instr.desc += !offset ? "]" : std::format(",#{}{:08X}]{}", u, offset, writeback);
+        } else {
+            instr.desc += std::format(",{}r{}]{}", u, rm_or_offset, writeback);
+        }
+    } else {
+        instr.desc += "],";
+        if (!i) {
+            instr.desc += std::format("#{}{:08X}", u, offset);
+        } else {
+            instr.desc += std::format("{}r{}", u, rm_or_offset);
+        }
+    }
+}
+
+void Debugger::print_block_transfer(Instr& instr) {
+    const char* cond = condition(instr.opcode);
+    auto reg_list = instr.opcode & 0xFFFF;
+    auto rn = (instr.opcode >> 16) & 0xF;
+    auto pu = (instr.opcode >> 23) & 3;
+    const char* w = (instr.opcode >> 21) & 1 ? "!" : "";
+
+    
+    instr.desc = (instr.opcode >> 20) & 1 ? "LDM" : "STM";
+    instr.desc += std::format("{}{} r{}{},", cond, amod(pu), rn, w) + "{";
+
+    bool in_range = false;
+    for (int i = 0; i < 16; i++) {
+        if ((reg_list >> i) & 1) {
+            bool next_reg_unset = (i == 15) || !((reg_list >> (i + 1)) & 1);
+            if (in_range) {
+                if (next_reg_unset) {
+                    instr.desc += std::format("-r{},", i);
+                    in_range = false;
+                }
+                // do nothing otherwise
+            } else {
+                instr.desc += std::format("r{}", i);
+                in_range = true;
+                if (next_reg_unset) {
+                    instr.desc += ',';
+                }
+            }
+        } else {
+            in_range = false;
+        }
+    }
+    instr.desc[instr.desc.size() - 1] = '}';
+}
+
 void Debugger::decompile_arm_instr(Instr& instr) {
     const char* cond = condition(instr.opcode);
     std::uint16_t opcode = (((instr.opcode >> 20) & 0xFF) << 4) | ((instr.opcode >> 4) & 0xF);
@@ -128,174 +354,10 @@ void Debugger::decompile_arm_instr(Instr& instr) {
         instr.desc = std::format("BX{} r{}", cond, rn);
         break;
     }
-    case CPU::InstrFormat::ALU: {
-        const char* set_cc = ((instr.opcode >> 20) & 1) ? "S" : "";
-        std::uint8_t rd = (instr.opcode >> 12) & 0xF;
-        std::uint8_t rn = (instr.opcode >> 16) & 0xF;
-        std::uint8_t rm = instr.opcode & 0xF;
-
-        std::uint32_t op1 = 0;
-        std::uint32_t op2 = 0;
-        bool carry = false;
-        m_cpu->get_alu_operands(instr.opcode, op1, op2, carry);
-
-        switch ((instr.opcode >> 21) & 0xF) {
-        case 0x0:
-            instr.desc = std::format("AND{}{} r{},r{},",
-                cond, set_cc, rd, rn);
-            break;
-        case 0x1:
-            instr.desc = std::format("EOR{}{} r{},r{},",
-                cond, set_cc, rd, rn);
-            break;
-        case 0x2:
-            instr.desc = std::format("SUB{}{} r{},r{},",
-                cond, set_cc, rd, rn);
-            break;
-        case 0x3:
-            instr.desc = std::format("RSB{}{} r{},r{},",
-                cond, set_cc, rd, rn);
-            break;
-        case 0x4:
-            instr.desc = std::format("ADD{}{} r{},r{},",
-                cond, set_cc, rd, rn);
-            break;
-        case 0x5:
-            instr.desc = std::format("ADC{}{} r{},r{},",
-                cond, set_cc, rd, rn);
-            break;
-        case 0x6:
-            instr.desc = std::format("SBC{}{} r{},r{},",
-                cond, set_cc, rd, rn);
-            break;
-        case 0x7:
-            instr.desc = std::format("RSC{}{} r{},r{},",
-                cond, set_cc, rd, rn);
-            break;
-        case 0x8:
-            instr.desc = std::format("TST{} r{},",
-                cond, rn);
-            break;
-        case 0x9:
-            instr.desc = std::format("TEQ{} r{},",
-                cond, rn);
-            break;
-        case 0xA:
-            instr.desc = std::format("CMP{} r{},",
-                cond, rn);
-            break;
-        case 0xB:
-            instr.desc = std::format("CMN{} r{},",
-                cond, rn);
-            break;
-        case 0xC:
-            instr.desc = std::format("ORR{}{} r{},r{},",
-                cond, set_cc, rd, rn);
-            break;
-        case 0xD:
-            instr.desc = std::format("MOV{}{} r{},",
-                cond, set_cc, rd);
-            break;
-        case 0xE:
-            instr.desc = std::format("BIC{}{} r{},r{},",
-                cond, set_cc, rd, rn);
-            break;
-        case 0xF:
-            instr.desc = std::format("MVN{}{} r{},",
-                cond, set_cc, rd);
-            break;
-        default: std::unreachable();
-        }
-        instr.desc += ((instr.opcode >> 25) & 1) 
-            ? std::format("#{:08X}", op2) : std::format("r{}", rm);
-        break;
-    }
-    case CPU::InstrFormat::SINGLE_TRANSFER: {
-        bool p = (instr.opcode >> 24) & 1;
-        bool i = (instr.opcode >> 25) & 1;
-        bool l = (instr.opcode >> 20) & 1;
-        auto rn = (instr.opcode >> 16) & 0xF;
-        auto rd = (instr.opcode >> 12) & 0xF;
-        const char* b = ((instr.opcode >> 22) & 1) ? "B" : "";
-        const char* u = ((instr.opcode >> 23) & 1) ? "" : "-";
-        const char* writeback = (!p || (p && ((instr.opcode >> 21) & 1))) ? "!" : "";
-
-        if (l) {
-            instr.desc = std::format("LDR{}{} ", cond, b);
-        } else {
-            instr.desc = std::format("STR{}{} ", cond, b);
-        }
-        instr.desc += std::format("r{},[r{}", rd, rn);
-
-        auto offset = instr.opcode & 0xFFF;
-        auto rm = instr.opcode & 0xF;
-        auto shift_amount = (instr.opcode >> 7) & 0x1F;
-        auto shift_opcode = (instr.opcode >> 5) & 3;
-        if (p) {
-            if (!i) {
-                instr.desc += !offset ? "]" : std::format(",#{}{:08X}]{}", u, offset, writeback);
-            } else {
-                instr.desc += std::format(",{}r{},{}#{}]{}", u, rm, shift_type(shift_opcode), shift_amount, writeback);
-            }
-        } else {
-            instr.desc += "],";
-            if (!i) {
-                instr.desc += std::format("#{}{:08X}]", u, offset);
-            } else {
-                instr.desc += std::format("{}r{},{}#{}", u, rm, shift_type(shift_opcode), shift_amount);
-            }
-        }
-        break;
-    }
-    case CPU::InstrFormat::HALFWORD_TRANSFER: {
-        // bool p = (instr.opcode >> 24) & 1;
-        // bool i = (instr.opcode >> 25) & 1;
-        bool l = (instr.opcode >> 20) & 1;
-        auto rd = (instr.opcode >> 12) & 0xF;
-        auto rn = (instr.opcode >> 16) & 0xF;
-        auto opcode = (instr.opcode >> 5) & 3;
-
-        if (l) {
-            switch (opcode) {
-            case 1:
-                instr.desc = std::format("STR{}H ", cond);
-                break;
-            case 2:
-                instr.desc = std::format("LDR{}D ", cond);
-                break;
-            case 3:
-                instr.desc = std::format("STR{}D ", cond);
-                break;
-            default: std::unreachable();
-            }
-        } else {
-            switch (opcode) {
-            case 1:
-                instr.desc = std::format("LDR{}H ", cond);
-                break;
-            case 2:
-                instr.desc = std::format("LDR{}SB ", cond);
-                break;
-            case 3:
-                instr.desc = std::format("STR{}SH ", cond);
-                break;
-            default: std::unreachable();
-            }
-        }
-        instr.desc += std::format("r{}, [r{}", rd, rn);
-
-        break;
-    }
-    case CPU::InstrFormat::BLOCK_TRANSFER: {
-        bool l = (instr.opcode >> 20) & 1;
-
-        if (l) {
-            instr.desc = std::format("LDM{}", cond);
-        } else {
-            instr.desc = std::format("STM{}", cond);
-        }
-        break;
-    }
+    case CPU::InstrFormat::ALU: return print_alu(instr);
+    case CPU::InstrFormat::SINGLE_TRANSFER: return print_single_transfer(instr);
+    case CPU::InstrFormat::HALFWORD_TRANSFER: return print_halfword_transfer(instr);
+    case CPU::InstrFormat::BLOCK_TRANSFER: return print_block_transfer(instr);
     case CPU::InstrFormat::MSR: {
         bool i = (instr.opcode >> 25) & 1;
         const char* f = ((instr.opcode >> 19) & 1) ? "f" : "";
@@ -317,7 +379,13 @@ void Debugger::decompile_arm_instr(Instr& instr) {
         break;
     }
     case CPU::InstrFormat::MRS: {
-        instr.desc = std::format("MRS");
+        auto rd = (instr.opcode >> 12) & 0xF;
+        instr.desc = std::format("MRS{} r{}, ", cond, rd);
+        if ((instr.opcode >> 22) & 1) {
+            instr.desc += "spsr";
+        } else {
+            instr.desc += "cpsr";
+        }
         break;
     }
     case CPU::InstrFormat::MUL: {
@@ -341,15 +409,96 @@ void Debugger::decompile_arm_instr(Instr& instr) {
 void Debugger::decompile_thumb_instr(Instr& instr) {
     switch (m_cpu->m_thumb_lut[instr.opcode >> 6]) {
     case CPU::InstrFormat::THUMB_1: {
-        std::uint8_t rd = instr.opcode & 7;
-        std::uint8_t rs = (instr.opcode >> 3) & 7;
-        std::uint32_t offset = (instr.opcode >> 6) & 0x1F;
-        instr.desc = std::string(shift_type((instr.opcode >> 11) & 3)) + 'S' + ' '
-            + std::format("r{},r{},#{:02X}", rd, rs, offset);
+        std::uint16_t thumb = instr.opcode;
+        instr.opcode = m_cpu->thumb_translate_1(thumb);
+        print_alu(instr);
+        instr.opcode = thumb;
+        break;
+    }
+    case CPU::InstrFormat::THUMB_2: {
+        std::uint16_t thumb = instr.opcode;
+        instr.opcode = m_cpu->thumb_translate_2(thumb);
+        print_alu(instr);
+        instr.opcode = thumb;
+        break;
+    }
+    case CPU::InstrFormat::THUMB_3: {
+        std::uint16_t thumb = instr.opcode;
+        instr.opcode = m_cpu->thumb_translate_3(thumb);
+        print_alu(instr);
+        instr.opcode = thumb;
+        break;
+    }
+
+    case CPU::InstrFormat::THUMB_7: {
+        std::uint16_t thumb = instr.opcode;
+        instr.opcode = m_cpu->thumb_translate_7(thumb);
+        print_single_transfer(instr);
+        instr.opcode = thumb;
+        break;
+    }
+    case CPU::InstrFormat::THUMB_8: {
+        std::uint16_t thumb = instr.opcode;
+        instr.opcode = m_cpu->thumb_translate_8(thumb);
+        print_halfword_transfer(instr);
+        instr.opcode = thumb;
+        break;
+    }
+    case CPU::InstrFormat::THUMB_9: {
+        std::uint16_t thumb = instr.opcode;
+        instr.opcode = m_cpu->thumb_translate_9(thumb);
+        print_single_transfer(instr);
+        instr.opcode = thumb;
+        break;
+    }
+    case CPU::InstrFormat::THUMB_10: {
+        std::uint16_t thumb = instr.opcode;
+        instr.opcode = m_cpu->thumb_translate_10(thumb);
+        print_halfword_transfer(instr);
+        instr.opcode = thumb;
+        break;
+    }
+    case CPU::InstrFormat::THUMB_11: {
+        std::uint16_t thumb = instr.opcode;
+        instr.opcode = m_cpu->thumb_translate_11(thumb);
+        print_single_transfer(instr);
+        instr.opcode = thumb;
         break;
     }
     case CPU::InstrFormat::THUMB_17: {
         instr.desc = "SWI " + std::string(swi_subroutine(instr.opcode & 0xFF));
+        break;
+    }
+    case CPU::InstrFormat::THUMB_13: {
+        std::uint16_t thumb = instr.opcode;
+        instr.opcode = m_cpu->thumb_translate_13(thumb);
+        print_alu(instr);
+        instr.opcode = thumb;
+        break;
+    }
+    case CPU::InstrFormat::THUMB_14: {
+        std::uint16_t thumb = instr.opcode;
+        instr.opcode = m_cpu->thumb_translate_14(thumb);
+        print_block_transfer(instr);
+        instr.opcode = thumb;
+        break;
+    }
+    case CPU::InstrFormat::THUMB_15: {
+        std::uint16_t thumb = instr.opcode;
+        instr.opcode = m_cpu->thumb_translate_15(thumb);
+        print_block_transfer(instr);
+        instr.opcode = thumb;
+        break;
+    }
+    // case CPU::InstrFormat::THUMB_17: {
+    //     return swi(thumb_translate_17(instr));
+    //     break;
+    // }
+    case CPU::InstrFormat::THUMB_18: {
+        std::uint16_t thumb = instr.opcode;
+        instr.opcode = m_cpu->thumb_translate_18(thumb);
+        print_block_transfer(instr);
+        instr.opcode = thumb;
         break;
     }
     default: break;

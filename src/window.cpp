@@ -235,7 +235,7 @@ void Window::render_debug_window() {
         ImGui::TableSetColumnIndex(0);
         ImGui::Text("cpsr: 0x%08X", m_debugger->view_cpsr());
         ImGui::TableSetColumnIndex(1);
-        ImGui::Text("psr: 0x%08X", m_debugger->view_psr());
+        ImGui::Text("spsr: 0x%08X", m_debugger->view_psr());
 
         ImGui::TableNextRow();
         ImGui::TableSetColumnIndex(0);

@@ -9,7 +9,7 @@ int main(int argc, char* argv[]) {
         ProgramOptions po;
     
         po.add_options()
-        ("r", "path to GBA rom");
+            ("r", "path to GBA rom");
         po.parse_cli(argc, argv);
 
         const std::string rom_filepath = po.get_value("r");

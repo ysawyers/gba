@@ -140,11 +140,16 @@ void PPU::tick(int cycles) {
 
         if (m_vcount >= frame_height) {
             // vblank
-            if (m_scanline_cycles == cycles_per_scanline) [[unlikely]] {
+            if (m_scanline_cycles == cycles_per_scanline) {
                 m_scanline_cycles = 0;
                 if (++m_vcount == 228) {
                     m_vcount = 0;
                     *reinterpret_cast<std::uint16_t*>(m_mmio + 4) &= ~3;
+                }
+            } else if (m_scanline_cycles == 1004) {
+                // hblank-in-vblank IRQ
+                if ((*dispstat >> 4) & 1) {
+                    *reinterpret_cast<std::uint16_t*>(m_mmio + 0x202) |= 2;
                 }
             }
         } else if (m_scanline_cycles == cycles_per_scanline) {
@@ -153,6 +158,7 @@ void PPU::tick(int cycles) {
             m_vcount += 1;
 
             if ((*dispstat >> 5) & 1) {
+                // vcount IRQ
                 if (m_vcount == ((*dispstat >> 8) & 0xFF)) {
                     *reinterpret_cast<std::uint16_t*>(m_mmio + 0x202) |= 4;
                 }
@@ -162,6 +168,7 @@ void PPU::tick(int cycles) {
                 // entering vblank
                 *dispstat |= 3;
                 if ((*dispstat >> 3) & 1) {
+                    // vblank IRQ
                     *reinterpret_cast<std::uint16_t*>(m_mmio + 0x202) |= 1;
                 }
             } else {
@@ -169,9 +176,10 @@ void PPU::tick(int cycles) {
                 *dispstat &= ~3;
             }
         } else if (m_scanline_cycles == 1004) {
-            // hblank
+            // entering hblank
             *dispstat |= 2;
             if ((*dispstat >> 4) & 1) {
+                // hblank IRQ
                 *reinterpret_cast<std::uint16_t*>(m_mmio + 0x202) |= 2;
             }
         } else if (m_scanline_cycles == 960) {

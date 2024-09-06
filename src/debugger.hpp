@@ -32,9 +32,15 @@ class Debugger {
         void decompile_arm_instr(Instr& instr);
         void decompile_thumb_instr(Instr& instr);
 
+        void print_alu(Instr& instr);
+        void print_single_transfer(Instr& instr);
+        void print_halfword_transfer(Instr& instr);
+        void print_block_transfer(Instr& instr);
+
         const char* swi_subroutine(std::uint32_t nn);
         const char* shift_type(std::uint8_t opcode);
         const char* condition(std::uint32_t instr);
+        const char* amod(std::uint8_t pu);
 
         std::shared_ptr<CPU> m_cpu;
 };

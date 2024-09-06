@@ -934,8 +934,8 @@ FrameBuffer& CPU::view_current_frame() {
 
 int CPU::step() {
     int cycles = 1;
-    const auto& sys = sys_bank();
 
+    const auto& sys = sys_bank();
     bool irq_disable = (sys.m_control >> 7) & 1;
     if (m_mem.pending_interrupts(irq_disable)) {
         m_banked_regs[IRQ].m_control = sys.m_control;
@@ -949,11 +949,14 @@ int CPU::step() {
         cycles = execute();
     }
     m_mem.tick_components(cycles);
+
     return cycles;
 }
 
 FrameBuffer& CPU::render_frame(std::uint16_t key_input, std::uint32_t breakpoint, bool& breakpoint_reached) {
     m_mem.m_key_input = key_input;
+
+    breakpoint = 0x18;
 
     int total_cycles = 0;
     while (total_cycles < CYCLES_PER_FRAME) {
