@@ -212,12 +212,6 @@ void Window::render_debug_window() {
             m_cpu->step();
         }
     }
-    ImGui::SameLine();
-    if (m_breakpoint_reached && ImGui::Button("Step 281900")) {
-        for (int i = 0; i < 281900; i++) {
-            m_cpu->step();
-        }
-    }
     ImGui::Spacing();
 
     if (ImGui::BeginTable("registers", 2)) {
@@ -242,6 +236,12 @@ void Window::render_debug_window() {
         ImGui::Text("ie: 0x%08X", m_debugger->view_ie());
         ImGui::TableSetColumnIndex(1);
         ImGui::Text("if: 0x%08X", m_debugger->view_if());
+
+        ImGui::TableNextRow();
+        ImGui::TableSetColumnIndex(0);
+        ImGui::Text("pipeline: 0x%08X", m_debugger->view_pipeline());
+        ImGui::TableSetColumnIndex(1);
+        ImGui::Text("flush?: %s", m_debugger->is_pipeline_invalid() ? "YES" : "NO");
 
         ImGui::EndTable();
     }

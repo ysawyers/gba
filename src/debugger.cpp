@@ -16,6 +16,14 @@ std::uint32_t Debugger::view_psr() {
     return m_cpu->get_psr();
 }
 
+std::uint32_t Debugger::view_pipeline() {
+    return m_cpu->m_pipeline;
+}
+
+bool Debugger::is_pipeline_invalid() {
+    return m_cpu->m_pipeline_invalid;
+}
+
 // TODO: merge into single function
 std::uint16_t Debugger::view_ie() {
     return m_cpu->m_mem.read<std::uint16_t>(0x04000200);
@@ -116,6 +124,20 @@ const char* Debugger::swi_subroutine(std::uint32_t nn) {
     case 0x2A: return "SoundGetJumpList";
     default: std::unreachable();
     }
+}
+
+void Debugger::print_branch(Instr& instr) {
+    const char* cond = condition(instr.opcode);
+    bool l = (instr.opcode >> 24) & 1;
+    std::int32_t nn = (static_cast<std::int32_t>((instr.opcode & 0xFFFFFF) << 8) >> 8) << 2;
+    instr.desc = std::format("B{}{} #{:08X}", 
+        l ? "L" : "", cond, (instr.addr + 8) + nn);
+}
+
+void Debugger::print_branch_x(Instr& instr) {
+    const char* cond = condition(instr.opcode);
+    std::uint8_t rn = instr.opcode & 0xF;
+    instr.desc = std::format("BX{} r{}", cond, rn);
 }
 
 void Debugger::print_alu(Instr& instr) {
@@ -306,7 +328,6 @@ void Debugger::print_block_transfer(Instr& instr) {
     auto pu = (instr.opcode >> 23) & 3;
     const char* w = (instr.opcode >> 21) & 1 ? "!" : "";
 
-    
     instr.desc = (instr.opcode >> 20) & 1 ? "LDM" : "STM";
     instr.desc += std::format("{}{} r{}{},", cond, amod(pu), rn, w) + "{";
 
@@ -334,6 +355,18 @@ void Debugger::print_block_transfer(Instr& instr) {
     instr.desc[instr.desc.size() - 1] = '}';
 }
 
+void Debugger::print_mul(Instr& instr) {
+    // auto rd = (instr.opcode >> 16) & 0xF;
+    // auto rn = (instr.opcode >> 12) & 0xF;
+    // auto rs = (instr.opcode >> 8) & 0xF;
+
+    switch ((instr.opcode >> 21) & 0xF) {
+    default:
+        // printf("MUL missing %d\n", (instr.opcode >> 21) & 0xF);
+        // std::exit(1);
+    }
+}
+
 void Debugger::decompile_arm_instr(Instr& instr) {
     const char* cond = condition(instr.opcode);
     std::uint16_t opcode = (((instr.opcode >> 20) & 0xFF) << 4) | ((instr.opcode >> 4) & 0xF);
@@ -342,18 +375,8 @@ void Debugger::decompile_arm_instr(Instr& instr) {
         instr.desc = "NOP";
         break;
     }
-    case CPU::InstrFormat::B: {
-        bool l = (instr.opcode >> 24) & 1;
-        std::int32_t nn = (static_cast<std::int32_t>((instr.opcode & 0xFFFFFF) << 8) >> 8) << 2;
-        instr.desc = std::format("B{}{} #{:08X}", 
-            l ? "L" : "", cond, (instr.addr + 8) + nn);
-        break;
-    }
-    case CPU::InstrFormat::BX: {
-        std::uint8_t rn = instr.opcode & 0xF;
-        instr.desc = std::format("BX{} r{}", cond, rn);
-        break;
-    }
+    case CPU::InstrFormat::B: return print_branch(instr);
+    case CPU::InstrFormat::BX: return print_branch_x(instr);
     case CPU::InstrFormat::ALU: return print_alu(instr);
     case CPU::InstrFormat::SINGLE_TRANSFER: return print_single_transfer(instr);
     case CPU::InstrFormat::HALFWORD_TRANSFER: return print_halfword_transfer(instr);
@@ -388,18 +411,7 @@ void Debugger::decompile_arm_instr(Instr& instr) {
         }
         break;
     }
-    case CPU::InstrFormat::MUL: {
-        // auto rd = (instr.opcode >> 16) & 0xF;
-        // auto rn = (instr.opcode >> 12) & 0xF;
-        // auto rs = (instr.opcode >> 8) & 0xF;
-
-        switch ((instr.opcode >> 21) & 0xF) {
-        default:
-            // printf("MUL missing %d\n", (instr.opcode >> 21) & 0xF);
-            // std::exit(1);
-        }
-        break;
-    }
+    case CPU::InstrFormat::MUL: return print_mul(instr);
     default:
         // printf("%hhu\n", m_cpu->m_arm_lut[opcode]);
         // std::exit(1);
@@ -429,7 +441,94 @@ void Debugger::decompile_thumb_instr(Instr& instr) {
         instr.opcode = thumb;
         break;
     }
+    case CPU::InstrFormat::THUMB_4: {
+        std::uint32_t translation = 0b11100000000100000000000000000000;
+        std::uint32_t rd = instr.opcode & 0x7;
+        std::uint32_t rs = (instr.opcode >> 3) & 0x7;
+        std::uint32_t arm_opcode = (instr.opcode >> 6) & 0xF;
+        auto shift_type = CPU::ShiftType::LSL;
 
+        translation |= (rd << 12);
+
+        switch ((instr.opcode >> 6) & 0xF) {
+        case 0x2:
+            goto thumb_shift_instr;
+        case 0x3:
+            shift_type = CPU::ShiftType::LSR;
+            goto thumb_shift_instr;
+        case 0x4:
+            shift_type = CPU::ShiftType::ASR;
+            goto thumb_shift_instr;
+        case 0x7:
+            shift_type = CPU::ShiftType::ROR;
+            goto thumb_shift_instr;
+        case 0x9: {
+            translation |= (0x3 << 21);
+            translation |= (0x1 << 25);
+            translation |= (rs << 16);
+
+            std::uint16_t thumb = instr.opcode;
+            instr.opcode = translation;
+            print_alu(instr);
+            instr.opcode = thumb;
+            break;
+        }
+        case 0xD: {
+            translation |= (rd << 16);
+            translation |= rs;
+            translation |= (rd << 8);
+
+            std::uint16_t thumb = instr.opcode;
+            instr.opcode = translation;
+            print_mul(instr);
+            instr.opcode = thumb;
+            break;
+        }
+        }
+
+        translation |= rs;
+
+        complete_translation: {
+            translation |= (arm_opcode << 21);
+            translation |= (rd << 16);
+            translation |= (static_cast<std::uint32_t>(std::to_underlying(shift_type)) << 5);
+
+            std::uint16_t thumb = instr.opcode;
+            instr.opcode = translation;
+            print_alu(instr);
+            instr.opcode = thumb;
+            break;
+        }
+
+        thumb_shift_instr:
+            arm_opcode = 0xD;
+            translation |= (0x1 << 4);
+            translation |= (rs << 8);
+            translation |= rd;
+            goto complete_translation;
+
+        std::unreachable();
+    }
+    case CPU::InstrFormat::THUMB_5_ALU: {
+        std::uint16_t thumb = instr.opcode;
+        instr.opcode = m_cpu->thumb_translate_5_alu(thumb);
+        print_alu(instr);
+        instr.opcode = thumb;
+        break;
+    }
+    case CPU::InstrFormat::THUMB_5_BX: {
+        std::uint16_t thumb = instr.opcode;
+        instr.opcode = m_cpu->thumb_translate_5_bx(thumb);
+        print_branch_x(instr);
+        instr.opcode = thumb;
+        break;
+    }
+    case CPU::InstrFormat::THUMB_6: {
+        std::uint8_t rd = (instr.opcode >> 8) & 0x7;
+        std::uint16_t nn = (instr.opcode & 0xFF) << 2;
+        instr.desc = std::format("LDR r{},[PC,#{:08X}]", rd, nn);
+        break;
+    }
     case CPU::InstrFormat::THUMB_7: {
         std::uint16_t thumb = instr.opcode;
         instr.opcode = m_cpu->thumb_translate_7(thumb);
@@ -465,8 +564,11 @@ void Debugger::decompile_thumb_instr(Instr& instr) {
         instr.opcode = thumb;
         break;
     }
-    case CPU::InstrFormat::THUMB_17: {
-        instr.desc = "SWI " + std::string(swi_subroutine(instr.opcode & 0xFF));
+    case CPU::InstrFormat::THUMB_12: {
+        std::uint8_t rd = (instr.opcode >> 8) & 0x7;
+        std::uint32_t nn = (instr.opcode & 0xFF) << 2;
+        const char* source_reg = (instr.opcode >> 11) & 1 ? "SP" : "PC";
+        instr.desc = std::format("ADD r{},{},#{:08X}", rd, source_reg, nn);
         break;
     }
     case CPU::InstrFormat::THUMB_13: {
@@ -490,10 +592,17 @@ void Debugger::decompile_thumb_instr(Instr& instr) {
         instr.opcode = thumb;
         break;
     }
-    // case CPU::InstrFormat::THUMB_17: {
-    //     return swi(thumb_translate_17(instr));
-    //     break;
-    // }
+    case CPU::InstrFormat::THUMB_16: {
+        std::uint16_t thumb = instr.opcode;
+        instr.opcode = m_cpu->thumb_translate_16(thumb);
+        print_branch(instr);
+        instr.opcode = thumb;
+        break;
+    }
+    case CPU::InstrFormat::THUMB_17: {
+        instr.desc = "SWI " + std::string(swi_subroutine(instr.opcode & 0xFF));
+        break;
+    }
     case CPU::InstrFormat::THUMB_18: {
         std::uint16_t thumb = instr.opcode;
         instr.opcode = m_cpu->thumb_translate_18(thumb);
@@ -501,9 +610,22 @@ void Debugger::decompile_thumb_instr(Instr& instr) {
         instr.opcode = thumb;
         break;
     }
+    case CPU::InstrFormat::THUMB_19_PREFIX: {
+        instr.desc = "LONG BRANCH w/ LINK (PREFIX)";
+        break;
+    }
+    case CPU::InstrFormat::THUMB_19_SUFFIX: {
+        instr.desc = "LONG BRANCH w/ LINK (SUFFIX)";
+        break;
+    }
     default: break;
     }
 }
+
+// case CPU::InstrFormat::THUMB_17: {
+//     return swi(thumb_translate_17(instr));
+//     break;
+// }
 
 std::array<Debugger::Instr, 64> Debugger::view_nearby_instructions() {
     std::array<Debugger::Instr, 64> instrs{};

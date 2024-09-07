@@ -288,16 +288,16 @@ int CPU::halfword_transfer(std::uint32_t instr) {
     if (l) {
         bool misaligned_read = addr & 1;
         switch (opcode) {
-        case 0x1: {
+        case 1: {
             safe_reg_assign(rd, misaligned_read ? 
                 ror(m_mem.read<std::uint16_t>(addr - 1), 8) : m_mem.read<std::uint16_t>(addr));
             break;
         }
-        case 0x2: {
+        case 2: {
             safe_reg_assign(rd, static_cast<std::int32_t>(static_cast<std::int8_t>(m_mem.read<std::uint8_t>(addr))));
             break;
         }
-        case 0x3: {
+        case 3: {
             std::uint32_t value = misaligned_read ? static_cast<std::int32_t>(static_cast<std::int8_t>(m_mem.read<std::uint8_t>(addr)))
                 : static_cast<std::int32_t>(static_cast<std::int16_t>(m_mem.read<std::uint16_t>(addr)));
             safe_reg_assign(rd, value);
@@ -305,20 +305,7 @@ int CPU::halfword_transfer(std::uint32_t instr) {
         }
         }
     } else {
-        switch (opcode) {
-        case 0x1: {
-            m_mem.write<std::uint16_t>(addr, m_regs[rd]);
-            break;
-        }
-        case 0x2: {
-            std::cout << "LDRD" << std::endl;
-            std::exit(1);
-        }
-        case 0x3: {
-            std::cout << "STRD" << std::endl;
-            std::exit(1);
-        }
-        }
+        m_mem.write<std::uint16_t>(addr, m_regs[rd]);
     }
 
     if (writeback && (!l || !(rn == rd))) {
@@ -870,17 +857,9 @@ int CPU::execute() {
         case InstrFormat::THUMB_19_SUFFIX: {
             std::uint32_t lower_half_offset = instr & 0x7FF;
             std::uint32_t curr_pc = m_regs[15];
-            switch ((instr >> 11) & 0x1F) {
-            case 0b11111:
-                m_regs[15] = m_regs[14] + (lower_half_offset << 1);
-                m_pipeline_invalid = true;
-                break;
-            case 0b11101:
-                printf("BLX THUMB\n");
-                std::exit(1);
-            default: std::unreachable();
-            }
+            m_regs[15] = m_regs[14] + (lower_half_offset << 1);
             m_regs[14] = (curr_pc - 2) | 1;
+            m_pipeline_invalid = true;
             return 1;
         }
         case InstrFormat::NOP: return 1;
@@ -888,11 +867,6 @@ int CPU::execute() {
         }
     } else {
         std::uint32_t instr = m_pipeline_invalid ? fetch_arm() : m_pipeline;
-
-        if (!instr) {
-            stop = true;
-        }
-
         m_pipeline = fetch_arm();
         m_pipeline_invalid = false;
 
@@ -931,6 +905,9 @@ void CPU::reset() {
 FrameBuffer& CPU::view_current_frame() {
     return m_mem.get_frame();
 }
+
+// dont forget, this irq issue is something with pipeline issue and returning
+// to a bad address because of pipeline flush or lack thereof
 
 int CPU::step() {
     int cycles = 1;
