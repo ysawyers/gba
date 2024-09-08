@@ -83,9 +83,29 @@ class Memory {
             case 0x03:
                 *reinterpret_cast<T*>(m_iwram.data() + ((addr - 0x03000000) & 0x7FFF)) = value;
                 break;
-            case 0x04:
-                *reinterpret_cast<T*>(m_mmio.data() + (addr - 0x04000000)) = value;
+            case 0x04: {
+                addr -= 0x04000000;
+                if constexpr (std::is_same_v<T, std::uint32_t>) {
+                    std::uint16_t upper = value >> 16;
+                    std::uint16_t lower = value & 0xFFFF;
+
+                    if (addr == 0x202) {
+                        printf("writing to if and waitcnt??\n");
+                        std::exit(1);
+                    } else if (addr == 0x200) {
+                        printf("%08X\n", upper);
+                        printf("%08X\n", lower);
+                        std::exit(1);
+                    }
+                } else if constexpr (std::is_same_v<T, std::uint16_t>) {
+                    if (addr == 0x202) {
+                        *reinterpret_cast<T*>(m_mmio.data() + addr) &= ~value;
+                        break;
+                    }
+                }
+                *reinterpret_cast<T*>(m_mmio.data() + addr) = value;
                 break;
+            }
             case 0x05:
                 if constexpr (std::is_same_v<T, std::uint8_t>) {
                     std::uint16_t duplicated_halfword = (value << 8) | value;

@@ -906,19 +906,16 @@ FrameBuffer& CPU::view_current_frame() {
     return m_mem.get_frame();
 }
 
-// dont forget, this irq issue is something with pipeline issue and returning
-// to a bad address because of pipeline flush or lack thereof
-
 int CPU::step() {
     int cycles = 1;
 
     const auto& sys = sys_bank();
     bool irq_disable = (sys.m_control >> 7) & 1;
-    if (m_mem.pending_interrupts(irq_disable)) {
+    if (m_mem.pending_interrupts(irq_disable) && !m_pipeline_invalid) {
         m_banked_regs[IRQ].m_control = sys.m_control;
         m_banked_regs[IRQ].m_flags = sys.m_flags;
         update_cpsr_mode(0x12);
-        m_regs[14] = m_regs[15] + 4;
+        m_regs[14] = m_regs[15] + (2 * m_thumb_enabled);
         m_regs[15] = 0x00000018;
         m_pipeline_invalid = true;
         update_cpsr_thumb_status(false);
@@ -932,8 +929,6 @@ int CPU::step() {
 
 FrameBuffer& CPU::render_frame(std::uint16_t key_input, std::uint32_t breakpoint, bool& breakpoint_reached) {
     m_mem.m_key_input = key_input;
-
-    breakpoint = 0x18;
 
     int total_cycles = 0;
     while (total_cycles < CYCLES_PER_FRAME) {

@@ -34,8 +34,9 @@ void Memory::load_rom(const std::string& rom_filepath) {
 bool Memory::pending_interrupts(bool irq_disabled) {
     bool ime = m_mmio[0x208] & 1;
     if (ime && !irq_disabled) {
-        std::uint32_t if_ie = *reinterpret_cast<std::uint32_t*>(m_mmio.data() + 0x200);
-        return (if_ie & 0xFFFF) & (if_ie >> 16);
+        auto if_ie = *reinterpret_cast<std::uint32_t*>(m_mmio.data() + 0x200);
+        // IF & IE != 0
+        return ((if_ie >> 16) & 0xFFFF) & (if_ie & 0xFFFF);
     }
     return 0;
 }

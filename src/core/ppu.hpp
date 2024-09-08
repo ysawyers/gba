@@ -32,7 +32,7 @@ class PPU {
 
         void scanline_tilemap_0(std::uint16_t dispcnt);
         void scanline_tilemap_1();
-        void scanline_tilemap_2();
+        void scanline_tilemap_2(std::uint16_t dispcnt);
         void scanline_bitmap_3();
         void scanline_bitmap_4();
         void scanline_bitmap_5();

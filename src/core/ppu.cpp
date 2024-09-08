@@ -107,7 +107,7 @@ void PPU::scanline_tilemap_1() {
     std::exit(1);
 }
 
-void PPU::scanline_tilemap_2() {
+void PPU::scanline_tilemap_2(std::uint16_t dispcnt) {
     std::cout << "scanline tilemap 2" << std::endl;
     std::exit(1);
 }
@@ -195,7 +195,7 @@ void PPU::tick(int cycles) {
                     scanline_tilemap_1();
                     break;
                 case 2:
-                    scanline_tilemap_2();
+                    scanline_tilemap_2(dispcnt);
                     break;
                 case 3:
                     scanline_bitmap_3();
