@@ -15,18 +15,22 @@ bool PPU::is_rendering_bitmap() {
     return (rendering_mode == 3 | rendering_mode == 4 | rendering_mode == 5);
 }
 
-std::uint16_t PPU::get_tile_offset(int tx, int ty, bool bg_reg_64x64) {
+std::uint16_t PPU::get_tile_offset(int tx, int ty, bool bg_reg_64x64) 
+{
     int tile_offset = (tx * 2) + (ty * 64);
-    if (tx >= 32) {
+    if (tx >= 32) 
+    {
         tile_offset += (0x03E0 * 2);
     }
-    if ((ty >= 32) && bg_reg_64x64) {
+    if ((ty >= 32) && bg_reg_64x64) 
+    {
         tile_offset += (0x0400 * 2);
     }
     return tile_offset;
 }
 
-void PPU::render_text_bg(std::uint16_t bgcnt, std::uint16_t bghofs, std::uint16_t bgvofs) {
+void PPU::render_text_bg(std::uint16_t bgcnt, std::uint16_t bghofs, std::uint16_t bgvofs) 
+{
     auto tm_width = 32 * (1 + ((bgcnt >> 0xE) & 1));
     auto tm_height = 32 * (1 + ((bgcnt >> 0xF) & 1));
     auto tile_data_base = m_vram.data() + (((bgcnt >> 2) & 3) * 0x4000);
@@ -36,7 +40,8 @@ void PPU::render_text_bg(std::uint16_t bgcnt, std::uint16_t bghofs, std::uint16_
     bool mosaic_enable = (bgcnt >> 6) & 1;
     auto bpp = 4 << color_pallete;
 
-    if (mosaic_enable) {
+    if (mosaic_enable) 
+    {
         printf("implement mosaic\n");
         std::exit(1);
     }
@@ -45,7 +50,8 @@ void PPU::render_text_bg(std::uint16_t bgcnt, std::uint16_t bghofs, std::uint16_
     auto ty = (((m_vcount + bgvofs) & ~7) / 8) & (tm_height - 1);
     auto scanline_x = 0;
 
-    while (true) {
+    while (true) 
+    {
         auto screen_entry = *reinterpret_cast<std::uint16_t*>(tile_map_base + get_tile_offset(tx, ty, bg_reg_64x64));
         auto tile_id = screen_entry & 0x3FF;
         auto pallete_bank = ((screen_entry >> 0xC) & 0xF) << 4; // only applied with 4bpp
@@ -56,18 +62,23 @@ void PPU::render_text_bg(std::uint16_t bgcnt, std::uint16_t bghofs, std::uint16_
         auto tile = tile_data_base + (tile_id * (0x20 << color_pallete)) + ((vf_flip ? 7 - tile_scanline : tile_scanline) * bpp);
 
         int start, end, step;
-        if (hz_flip) {
+        if (hz_flip) 
+        {
             start = 3;
             end = -1;
             step = -1;
-        } else {
+        } 
+        else 
+        {
             start = 0;
             end = 4;
             step = 1;
         }
 
-        for (int i = start; i != end; i += step) {
-            for (int nibble = hz_flip; nibble != (!hz_flip + step); nibble += step) {
+        for (int i = start; i != end; i += step) 
+        {
+            for (int nibble = hz_flip; nibble != (!hz_flip + step); nibble += step) 
+            {
                 if (scanline_x >= frame_width) return;
 
                 int px = i * 2 + nibble;
@@ -84,13 +95,17 @@ void PPU::render_text_bg(std::uint16_t bgcnt, std::uint16_t bghofs, std::uint16_
 
 void PPU::scanline_tilemap_0(std::uint16_t dispcnt) {
     auto prev_bg = 0;
-    for (int i = 0; i < 4; i++) {
-        for (int bg = 0; bg < 4; bg++) {
+    for (int i = 0; i < 4; i++) 
+    {
+        for (int bg = 0; bg < 4; bg++) 
+        {
             bool bg_enabled = (dispcnt >> (8 + bg)) & 1;
-            if (bg_enabled) {
+            if (bg_enabled) 
+            {
                 auto bgcnt = *reinterpret_cast<std::uint16_t*>(&(m_mmio[8 + (bg * 2)]));
                 auto precedence = (bgcnt & 3) + 1;
-                if (prev_bg <= precedence) {
+                if (prev_bg <= precedence) 
+                {
                     prev_bg = precedence;
                     auto bghofs = *reinterpret_cast<std::uint16_t*>(&(m_mmio[0x10 + (bg * 4)]));
                     auto bgvofs = *reinterpret_cast<std::uint16_t*>(&(m_mmio[0x10 + 2 + (bg * 4)]));

@@ -9,7 +9,8 @@
 
 class Debugger;
 
-class CPU {
+class CPU
+{
     public:
         struct Flags {
             std::uint8_t n;
@@ -21,12 +22,6 @@ class CPU {
         class Registers {
             public:
                 Registers() : m_control(0), m_list({}) {};
-
-                Registers(Registers& regs) {
-                    m_flags = regs.m_flags;
-                    m_control = regs.m_control;
-                    std::copy(regs.m_list.begin(), regs.m_list.end(), m_list.begin());
-                }
 
                 std::uint32_t& operator[](std::uint8_t reg) {
                     return m_list[reg];
@@ -50,13 +45,12 @@ class CPU {
         friend class Debugger;
 
     private:
-        // used as indices for banked registers in CPU
         enum Mode {
             SYS = 0, FIQ, SVC, ABT, IRQ, UND
         };
 
         enum class ShiftType {
-            LSL = 0, LSR, ASR, ROR 
+            LSL = 0, LSR, ASR, ROR
         };
 
         enum class InstrFormat : std::uint8_t {
@@ -74,7 +68,7 @@ class CPU {
         std::uint16_t fetch_thumb();
         int execute();
 
-        bool barrel_shifter(
+        void barrel_shifter(
             std::uint32_t& op,
             bool& carry_out,
             ShiftType shift_type,
@@ -88,14 +82,6 @@ class CPU {
             std::uint32_t& op2, 
             bool& carry_out
         );
-
-        Registers& sys_bank();
-        std::uint32_t get_cpsr();
-        std::uint32_t get_psr();
-
-        void update_cpsr_mode(std::uint8_t mode_bits);
-        void update_cpsr_thumb_status(bool enabled);
-        void update_cpsr_irq_disable(bool disabled);
 
         int branch(std::uint32_t instr);
         int branch_ex(std::uint32_t instr);
@@ -127,10 +113,20 @@ class CPU {
         std::uint32_t thumb_translate_18(std::uint16_t instr);
 
         void initialize_registers();
-        std::uint32_t ror(std::uint32_t operand, std::size_t shift_amount);
-        Registers& get_bank(std::uint8_t mode);
-        
         void safe_reg_assign(std::uint8_t reg, std::uint32_t value);
+
+        std::uint32_t get_cpsr();
+        std::uint32_t get_psr();
+        Registers& get_bank_from_mode_bits(std::uint8_t mode_bits);
+
+        bool in_user_mode();
+        bool is_irq_disabled();
+        bool is_thumb_enabled();
+        void update_cpsr_thumb_status(bool is_enabled);
+        void update_cpsr_irq_disable(bool is_disabled);
+        void bank_transfer(std::uint8_t mode_bits);
+
+        std::uint32_t ror(std::uint32_t operand, std::size_t shift_amount);
 
         std::array<InstrFormat, 4096> m_arm_lut = ([]() constexpr -> auto {
             std::array<InstrFormat, 4096> lut{};
@@ -381,9 +377,8 @@ class CPU {
 
         std::uint32_t m_pipeline;
         bool m_pipeline_invalid;
-        bool m_thumb_enabled;
         std::array<Registers, 6> m_banked_regs{};
-        Registers m_regs = m_banked_regs[SYS];
+        Mode m_mode;
         Memory m_mem;
 };
 

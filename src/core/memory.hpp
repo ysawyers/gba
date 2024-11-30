@@ -149,7 +149,7 @@ class Memory {
         void tick_components(int cycles);
         void reset_components();
 
-        bool pending_interrupts(bool irq_disabled);
+        bool pending_interrupts();
 
         FrameBuffer& get_frame();
 
@@ -161,8 +161,8 @@ class Memory {
         std::vector<std::uint8_t> m_iwram;
         std::vector<std::uint8_t> m_rom;
         std::vector<std::uint8_t> m_sram;
-
         std::array<std::uint8_t, 0x304> m_mmio{};
+
         PPU m_ppu;
         Timer timer;
 };

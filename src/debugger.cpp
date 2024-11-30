@@ -5,7 +5,7 @@
 #include "core/cpu.hpp"
 
 CPU::Registers& Debugger::view_registers() {
-    return m_cpu->m_regs;
+    return m_cpu->m_banked_regs[m_cpu->m_mode];
 }
 
 std::uint32_t Debugger::view_cpsr() {
@@ -33,7 +33,7 @@ std::uint16_t Debugger::view_if() {
 }
 
 std::uint32_t Debugger::current_pc() {
-    return m_cpu->m_regs[15] - ((4 >> m_cpu->m_thumb_enabled) * !m_cpu->m_pipeline_invalid);
+    return m_cpu->m_banked_regs[m_cpu->m_mode][15] - ((4 >> m_cpu->is_thumb_enabled()) * !m_cpu->m_pipeline_invalid);
 }
 
 const char* Debugger::amod(std::uint8_t pu) {
@@ -630,15 +630,15 @@ void Debugger::decompile_thumb_instr(Instr& instr) {
 std::array<Debugger::Instr, 64> Debugger::view_nearby_instructions() {
     std::array<Debugger::Instr, 64> instrs{};
 
-    std::int64_t num_instrs = ((instrs.size() / 2) * (4 >> m_cpu->m_thumb_enabled));
-    std::int64_t start = m_cpu->m_regs[15] - num_instrs;
-    std::int64_t end = m_cpu->m_regs[15] + num_instrs;
+    std::int64_t num_instrs = ((instrs.size() / 2) * (4 >> m_cpu->is_thumb_enabled()));
+    std::int64_t start = m_cpu->m_banked_regs[m_cpu->m_mode][15] - num_instrs;
+    std::int64_t end = m_cpu->m_banked_regs[m_cpu->m_mode][15] + num_instrs;
 
-    for (std::int64_t addr = start; addr < end; addr += (4 >> m_cpu->m_thumb_enabled)) {
+    for (std::int64_t addr = start; addr < end; addr += (4 >> m_cpu->is_thumb_enabled())) {
         if (addr < 0) continue;
-        int idx = (addr - start) / (4 >> m_cpu->m_thumb_enabled);
+        int idx = (addr - start) / (4 >> m_cpu->is_thumb_enabled());
         instrs[idx].addr = addr;
-        if (m_cpu->m_thumb_enabled) {
+        if (m_cpu->is_thumb_enabled()) {
             instrs[idx].opcode = m_cpu->m_mem.read<std::uint16_t>(addr);
             decompile_thumb_instr(instrs[idx]);
         } else {
