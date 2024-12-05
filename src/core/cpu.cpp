@@ -4,6 +4,8 @@
 #include <iostream>
 #include <utility>
 
+#include <cassert>
+
 static const int CYCLES_PER_FRAME = 280896;
 
 CPU::CPU(const std::string& rom_filepath) 
@@ -22,21 +24,6 @@ void CPU::initialize_registers()
     m_banked_regs[SYS][15] = 0x08000000;
     m_banked_regs[SVC][13] = 0x03007FE0;
     m_banked_regs[IRQ][13] = 0x03007FA0;
-}
-
-CPU::Registers& CPU::get_bank_from_mode_bits(std::uint8_t mode_bits) 
-{
-    switch (mode_bits) 
-    {
-    case 0b10000:
-    case 0b11111: return m_banked_regs[SYS];
-    case 0b10001: return m_banked_regs[FIQ];
-    case 0b10010: return m_banked_regs[IRQ];
-    case 0b10011: return m_banked_regs[SVC];
-    case 0b10111: return m_banked_regs[ABT];
-    case 0b11011: return m_banked_regs[UND];
-    default: std::unreachable();
-    }
 }
 
 bool CPU::in_user_mode()
@@ -885,6 +872,10 @@ int CPU::execute()
         std::uint16_t instr = m_pipeline_invalid ? fetch_thumb() : m_pipeline;
         m_pipeline = fetch_thumb();
         m_pipeline_invalid = false;
+
+        if (handle_interrupts())
+            return 1;
+
         switch (m_thumb_lut[instr >> 6]) 
         {
         case InstrFormat::THUMB_1: return alu(thumb_translate_1(instr));
@@ -996,12 +987,15 @@ int CPU::execute()
         case InstrFormat::NOP: return 1;
         default: std::unreachable();
         }
-    } 
+    }
     else 
     {
         std::uint32_t instr = m_pipeline_invalid ? fetch_arm() : m_pipeline;
         m_pipeline = fetch_arm();
         m_pipeline_invalid = false;
+
+        if (handle_interrupts())
+            return 1;
 
         if (condition(instr)) [[likely]] 
         {
@@ -1045,24 +1039,27 @@ FrameBuffer& CPU::view_current_frame()
     return m_mem.get_frame();
 }
 
-int CPU::step() 
+bool CPU::handle_interrupts()
 {
-    int cycles = 1;
-
-    if (!m_pipeline_invalid && !is_irq_disabled() && m_mem.pending_interrupts())
+    if (!is_irq_disabled() && m_mem.pending_interrupts())
     {
-        m_banked_regs[IRQ][14] = m_banked_regs[m_mode][15] - (4 >> is_thumb_enabled());
+        m_banked_regs[IRQ][14] = m_banked_regs[m_mode][15] - (is_thumb_enabled() ? 0 : 4);
         m_banked_regs[IRQ].m_control = m_banked_regs[SYS].m_control;
         m_banked_regs[IRQ].m_flags = m_banked_regs[SYS].m_flags;
+        update_cpsr_irq_disable(true);
         update_cpsr_thumb_status(false);
         bank_transfer(0b10010);
         m_banked_regs[m_mode][15] = 0x00000018;
         m_pipeline_invalid = true;
+        return true;
     }
+    return false;
+}
 
-    cycles = execute();
+int CPU::step()
+{
+    int cycles = execute();
     m_mem.tick_components(cycles);
-
     return cycles;
 }
 
@@ -1076,7 +1073,7 @@ FrameBuffer& CPU::render_frame(std::uint16_t key_input, std::uint32_t breakpoint
         if (breakpoint == m_banked_regs[m_mode][15]) [[unlikely]] 
         {
             breakpoint_reached = true;
-            return m_mem.get_frame();
+            break;
         }
         total_cycles += step();
     }

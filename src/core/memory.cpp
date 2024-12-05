@@ -3,9 +3,11 @@
 #include <fstream>
 #include <iostream>
 
-void Memory::load_bios() {
+void Memory::load_bios() 
+{
     FILE *fp = fopen("roms/bios.bin", "rb");
-    if (fp == NULL) {
+    if (fp == NULL) 
+    {
         throw std::runtime_error("failed to open bios file");
     }
 
@@ -17,9 +19,11 @@ void Memory::load_bios() {
     fclose(fp);
 }
 
-void Memory::load_rom(const std::string& rom_filepath) {
+void Memory::load_rom(const std::string& rom_filepath) 
+{
     FILE *fp = fopen(rom_filepath.c_str(), "rb");
-    if (fp == NULL) {
+    if (fp == NULL) 
+    {
         throw std::runtime_error("failed to open " + rom_filepath);
     }
 
@@ -34,16 +38,11 @@ void Memory::load_rom(const std::string& rom_filepath) {
 bool Memory::pending_interrupts() 
 {
     bool ime = m_mmio[0x208] & 1;
-    if (ime) 
-    {
-        auto if_reg = *reinterpret_cast<std::uint16_t*>(m_mmio.data() + 0x202);
-        auto ie_reg = *reinterpret_cast<std::uint16_t*>(m_mmio.data() + 0x200);
-        return if_reg & ie_reg;
-    }
-    return false;
+    auto if_ie = *reinterpret_cast<std::uint32_t*>(m_mmio.data() + 0x200);
+    return ime && ((if_ie >> 16) & 0xFFFF) & (if_ie & 0xFFFF);
 }
 
-void Memory::tick_components(int cycles) 
+void Memory::tick_components(int cycles)
 {
     m_ppu.tick(cycles);
 }

@@ -67,6 +67,7 @@ class CPU
         std::uint32_t fetch_arm();
         std::uint16_t fetch_thumb();
         int execute();
+        bool handle_interrupts();
 
         void barrel_shifter(
             std::uint32_t& op,
@@ -117,7 +118,6 @@ class CPU
 
         std::uint32_t get_cpsr();
         std::uint32_t get_psr();
-        Registers& get_bank_from_mode_bits(std::uint8_t mode_bits);
 
         bool in_user_mode();
         bool is_irq_disabled();
@@ -377,8 +377,9 @@ class CPU
 
         std::uint32_t m_pipeline;
         bool m_pipeline_invalid;
-        std::array<Registers, 6> m_banked_regs{};
         Mode m_mode;
+        std::array<Registers, 6> m_banked_regs{};
+        
         Memory m_mem;
 };
 
