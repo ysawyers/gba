@@ -63,7 +63,6 @@ void PPU::render_text_bg(std::uint16_t bgcnt, std::uint16_t bghofs, std::uint16_
     bool bg_reg_64x64 = ((bgcnt >> 0xE) & 3) == 3;
     bool color_pallete = (bgcnt >> 7) & 1;
     bool mosaic_enable = (bgcnt >> 6) & 1;
-    auto bpp = 4 << color_pallete;
 
     if (mosaic_enable) 
     {
@@ -85,7 +84,9 @@ void PPU::render_text_bg(std::uint16_t bgcnt, std::uint16_t bghofs, std::uint16_
         bool vf_flip = (screen_entry >> 0xB) & 1;
 
         auto tile_scanline = combined_vofs - (combined_vofs & ~7);
-        auto tile = tile_data_base + (tile_id * (0x20 << color_pallete)) + ((vf_flip ? 7 - tile_scanline : tile_scanline) * bpp);
+        auto tile = tile_data_base 
+            + (tile_id * (0x20 << color_pallete)) 
+            + ((vf_flip ? 7 - tile_scanline : tile_scanline) * (4 << color_pallete));
 
         int start, end, step;
         if (hz_flip) 
@@ -140,49 +141,53 @@ void PPU::render_text_bg(std::uint16_t bgcnt, std::uint16_t bghofs, std::uint16_
 void PPU::render_sprite(std::uint64_t sprite_entry, bool is_dim_1)
 {
     std::uint8_t y_coord = sprite_entry & 0xFF;
-    std::uint16_t sprite_size = get_sprite_size((((sprite_entry >> 0xE) & 3) << 2) | ((sprite_entry >> 30) & 3));
+    std::uint16_t sprite_size = get_sprite_size((((sprite_entry >> 0xE) & 3) << 2) | ((sprite_entry >> (16 + 0xE)) & 3));
     std::uint8_t sprite_height = sprite_size & 0xFF;
-    
+
     if (((y_coord + sprite_height) > m_vcount) && (m_vcount >= y_coord))
     {
-        std::uint16_t x_coord = (sprite_entry >> 16) & 0x1FF;
         std::uint8_t sprite_length = (sprite_size >> 8) & 0xFF;
+        std::uint16_t x_coord = (sprite_entry >> 16) & 0x1FF;
+        auto tm_height = (sprite_height & ~7) / 8;
+        auto tm_length = (sprite_length & ~7) / 8;
+        auto base_tile_number = (sprite_entry >> 32) & 0x3FF;
+        auto tile_scanline = (m_vcount - y_coord) - ((m_vcount - y_coord) & ~7);
         bool is_256_color_pallete = (sprite_entry >> 0xD) & 1;
-        auto bpp = 4 << is_256_color_pallete;
 
-        // bool hz_flip = (sprite_entry >> (16 + 0xC)) & 1;
-        // bool vf_flip = (sprite_entry >> (16 + 0xD)) & 1;
-
-        auto tile_number = (sprite_entry >> 32) & 0x3FF;
-        auto tile_scanline = m_vcount - y_coord;
-        auto tile = m_vram.data() + 0x010000 + (tile_number * (0x20 << is_256_color_pallete)) + (tile_scanline * bpp);
-
-        for (int i = 0; i < (sprite_length / 2); i++)
+        for (int tx = 0; tx < tm_length; tx++)
         {
-            for (int nibble = 0; nibble < 2; nibble++)
+            auto ty = ((m_vcount - y_coord) & ~7) / 8;
+            auto tile = m_vram.data() + 0x010000
+                + ((base_tile_number + tx + (ty * (is_dim_1 ? tm_height : 32))) * (0x20 << is_256_color_pallete))
+                + (tile_scanline * (4 << is_256_color_pallete));
+
+            for (int i = 0; i < 4; i++)
             {
-                int px = i * 2 + nibble;
-                if ((x_coord + px) >= 240) return;
+                for (int nibble = 0; nibble < 2; nibble++)
+                {
+                    int px = tx * 8 + i * 2 + nibble;
+                    if ((x_coord + px) >= 240) return;
 
-                std::uint8_t pallete_id;
-                std::uint16_t transparent_color;
-                
-                if (is_256_color_pallete)
-                {
-                    pallete_id = tile[px];
-                    transparent_color = *reinterpret_cast<std::uint16_t*>(m_pallete_ram.data() + 0x200);
-                }
-                else
-                {
-                    auto pallete_bank = ((sprite_entry >> (32 + 0xC)) & 0xF) << 4;
-                    pallete_id = pallete_bank | ((tile[i] >> (nibble * 4)) & 0x0F);
-                    transparent_color = *reinterpret_cast<std::uint16_t*>(m_pallete_ram.data() + 0x200 + (pallete_bank * 2));
-                }
+                    std::uint8_t pallete_id;
+                    std::uint16_t transparent_color;
+                    
+                    if (is_256_color_pallete)
+                    {
+                        pallete_id = tile[px];
+                        transparent_color = *reinterpret_cast<std::uint16_t*>(m_pallete_ram.data() + 0x200);
+                    }
+                    else
+                    {
+                        auto pallete_bank = ((sprite_entry >> (32 + 0xC)) & 0xF) << 4;
+                        pallete_id = pallete_bank | ((tile[i] >> (nibble * 4)) & 0x0F);
+                        transparent_color = *reinterpret_cast<std::uint16_t*>(m_pallete_ram.data() + 0x200 + (pallete_bank * 2));
+                    }
 
-                std::uint16_t pixel_color = *reinterpret_cast<std::uint16_t*>(m_pallete_ram.data() + 0x200 + (pallete_id * 2));
-                if (pixel_color != transparent_color)
-                {
-                    m_frame[m_vcount][x_coord + px] = pixel_color;
+                    std::uint16_t pixel_color = *reinterpret_cast<std::uint16_t*>(m_pallete_ram.data() + 0x200 + (pallete_id * 2));
+                    if (pixel_color != transparent_color)
+                    {
+                        m_frame[m_vcount][x_coord + px] = pixel_color;
+                    }
                 }
             }
         }
