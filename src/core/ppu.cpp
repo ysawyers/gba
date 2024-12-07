@@ -25,6 +25,26 @@ std::uint16_t PPU::get_tile_offset(int tx, int ty, bool bg_reg_64x64) const noex
     return tile_offset;
 }
 
+std::uint16_t PPU::get_sprite_size(std::uint8_t shape) const noexcept
+{
+    switch (shape)
+    {
+    case 0b0000: return 0x0808;
+    case 0b0001: return 0x1010;
+    case 0b0010: return 0x2020;
+    case 0b0011: return 0x4040;
+    case 0b0100: return 0x1008;
+    case 0b0101: return 0x2008;
+    case 0b0110: return 0x2010;
+    case 0b0111: return 0x4020;
+    case 0b1000: return 0x0810;
+    case 0b1001: return 0x0820;
+    case 0b1010: return 0x1020;
+    case 0b1011: return 0x2040;
+    default: std::unreachable();
+    }
+}
+
 void PPU::render_backdrop()
 {
     std::uint16_t backdrop_color = *reinterpret_cast<std::uint16_t*>(m_pallete_ram.data());
@@ -117,14 +137,66 @@ void PPU::render_text_bg(std::uint16_t bgcnt, std::uint16_t bghofs, std::uint16_
     }
 }
 
+void PPU::render_sprite(std::uint64_t sprite_entry, bool is_dim_1)
+{
+    std::uint8_t y_coord = sprite_entry & 0xFF;
+    std::uint16_t sprite_size = get_sprite_size((((sprite_entry >> 0xE) & 3) << 2) | ((sprite_entry >> 30) & 3));
+    std::uint8_t sprite_height = sprite_size & 0xFF;
+    
+    if (((y_coord + sprite_height) > m_vcount) && (m_vcount >= y_coord))
+    {
+        std::uint16_t x_coord = (sprite_entry >> 16) & 0x1FF;
+        std::uint8_t sprite_length = (sprite_size >> 8) & 0xFF;
+        bool is_256_color_pallete = (sprite_entry >> 0xD) & 1;
+        auto bpp = 4 << is_256_color_pallete;
+
+        // bool hz_flip = (sprite_entry >> (16 + 0xC)) & 1;
+        // bool vf_flip = (sprite_entry >> (16 + 0xD)) & 1;
+
+        auto tile_number = (sprite_entry >> 32) & 0x3FF;
+        auto tile_scanline = m_vcount - y_coord;
+        auto tile = m_vram.data() + 0x010000 + (tile_number * (0x20 << is_256_color_pallete)) + (tile_scanline * bpp);
+
+        for (int i = 0; i < (sprite_length / 2); i++)
+        {
+            for (int nibble = 0; nibble < 2; nibble++)
+            {
+                int px = i * 2 + nibble;
+                if ((x_coord + px) >= 240) return;
+
+                std::uint8_t pallete_id;
+                std::uint16_t transparent_color;
+                
+                if (is_256_color_pallete)
+                {
+                    pallete_id = tile[px];
+                    transparent_color = *reinterpret_cast<std::uint16_t*>(m_pallete_ram.data() + 0x200);
+                }
+                else
+                {
+                    auto pallete_bank = ((sprite_entry >> (32 + 0xC)) & 0xF) << 4;
+                    pallete_id = pallete_bank | ((tile[i] >> (nibble * 4)) & 0x0F);
+                    transparent_color = *reinterpret_cast<std::uint16_t*>(m_pallete_ram.data() + 0x200 + (pallete_bank * 2));
+                }
+
+                std::uint16_t pixel_color = *reinterpret_cast<std::uint16_t*>(m_pallete_ram.data() + 0x200 + (pallete_id * 2));
+                if (pixel_color != transparent_color)
+                {
+                    m_frame[m_vcount][x_coord + px] = pixel_color;
+                }
+            }
+        }
+    }
+}
+
 std::array<std::uint16_t, 4> PPU::bg_priority_list() const noexcept
 {
     std::array<std::uint16_t, 4> priority_list;
 
-    for (int bg = 0; bg < 4; bg++)
+    for (int i = 0; i < 4; i++)
     {
-        auto bgcnt = *reinterpret_cast<std::uint16_t*>(m_mmio + 0x008 + bg * 2);
-        priority_list[bg] = bgcnt | (bg << 4);
+        auto bgcnt = *reinterpret_cast<std::uint16_t*>(m_mmio + 0x008 + i * 2);
+        priority_list[i] = bgcnt | (i << 4);
     }
 
     for (int i = 1; i < 4; i++)
@@ -142,26 +214,34 @@ std::array<std::uint16_t, 4> PPU::bg_priority_list() const noexcept
     return priority_list;
 }
 
-std::array<std::uint16_t, 4> PPU::sprite_priority_list() const noexcept
-{
-    std::array<std::uint16_t, 4> priority_list;
-
-    
-
-    return priority_list;
-}
-
 void PPU::draw_scanline_tilemap_0(std::uint16_t dispcnt) 
 {
     auto bg_list = bg_priority_list();
-    for (int bg = bg_list.size() - 1; bg >= 0; bg--)
+
+    for (int i = 7; i >= 0; i--)
     {
-        auto background_id = (bg_list[bg] >> 4) & 3;
-        bool should_display_bg = (dispcnt >> (8 + background_id)) & 1;
-        if (should_display_bg)
+        if (i & 1)
         {
-            auto vofs_hofs = *reinterpret_cast<std::uint32_t*>(m_mmio + 0x010 + background_id * 4);
-            render_text_bg(bg_list[bg], vofs_hofs & 0x3FF, (vofs_hofs >> 16) & 0x3FF);
+            auto list_idx = (i - 1) / 2;
+            auto background_id = (bg_list[list_idx] >> 4) & 3;
+            bool should_display_bg = (dispcnt >> (8 + background_id)) & 1;
+            if (should_display_bg)
+            {
+                auto vofs_hofs = *reinterpret_cast<std::uint32_t*>(m_mmio + 0x010 + background_id * 4);
+                render_text_bg(bg_list[list_idx], vofs_hofs & 0x3FF, (vofs_hofs >> 16) & 0x3FF);
+            }
+        }
+        else if ((dispcnt >> 0xC) & 1)
+        {
+            for (int j = 0; j < 128; j++)
+            {
+                auto sprite_entry = *reinterpret_cast<std::uint64_t*>(m_oam.data() + j * 8);
+                auto priority = (sprite_entry >> (32 + 0xA)) & 3;
+                if ((i / 2) == priority)
+                {
+                    render_sprite(sprite_entry, (dispcnt >> 6) & 1);    
+                }
+            }
         }
     }
 }

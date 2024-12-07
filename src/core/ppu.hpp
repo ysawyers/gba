@@ -29,11 +29,13 @@ class PPU {
 
     private:
         std::uint16_t get_tile_offset(int tx, int ty, bool bg_reg_64x64) const noexcept;
+        std::uint16_t get_sprite_size(std::uint8_t shape) const noexcept;
         std::array<std::uint16_t, 4> bg_priority_list() const noexcept;
-        std::array<std::uint16_t, 4> sprite_priority_list() const noexcept;
 
         void render_backdrop();
         void render_text_bg(std::uint16_t bgcnt, std::uint16_t bghofs, std::uint16_t bgvofs);
+        void render_sprite(std::uint64_t sprite_entry, bool is_dim_1);
+
         void draw_scanline_tilemap_0(std::uint16_t dispcnt);
         void draw_scanline_tilemap_1(std::uint16_t dispcnt);
         void draw_scanline_tilemap_2(std::uint16_t dispcnt);

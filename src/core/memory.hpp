@@ -83,10 +83,13 @@ class Memory {
             case 0x03:
                 *reinterpret_cast<T*>(m_iwram.data() + ((addr - 0x03000000) & 0x7FFF)) = value;
                 break;
-            case 0x04: {
+            case 0x04: 
+            {
                 addr -= 0x04000000;
-                if constexpr (std::is_same_v<T, std::uint16_t>) {
-                    if (addr == 0x202) {
+                if constexpr (std::is_same_v<T, std::uint16_t>)
+                {
+                    if (addr == 0x202) 
+                    {
                         *reinterpret_cast<T*>(m_mmio.data() + addr) &= ~value;
                         break;
                     }
