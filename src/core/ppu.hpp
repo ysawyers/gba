@@ -3,22 +3,21 @@
 
 #include <array>
 #include <vector>
+#include <span>
 
 typedef std::array<std::array<std::uint16_t, 240>, 160> FrameBuffer;
 
-class PPU 
+class PPU
 {
     public:
-        PPU(std::uint8_t* mmio) : m_mmio(mmio), m_scanline_cycles(1) 
+        PPU(std::span<std::uint16_t, 42> mmio) : m_mmio(mmio), m_scanline_cycles(1) 
         {
             m_vram.resize(0x18000);
             m_oam.resize(0x400);
             m_pallete_ram.resize(0x400);
         }
 
-        std::uint8_t get_vcount() const noexcept { return m_mmio[6]; };
         bool is_rendering_bitmap();
-
         void tick(int cycles);
 
     public:
@@ -26,11 +25,9 @@ class PPU
         std::vector<std::uint8_t> m_vram;
         std::vector<std::uint8_t> m_oam;
         std::vector<std::uint8_t> m_pallete_ram;
-        std::uint8_t* m_mmio;
+        std::span<std::uint16_t, 42> m_mmio;
 
     private:
-        void update_vcount(std::uint8_t v) noexcept { m_mmio[6] = v; };
-
         std::uint16_t get_tile_offset(int tx, int ty, bool bg_reg_64x64) const noexcept;
         std::uint16_t get_sprite_size(std::uint8_t shape) const noexcept;
         std::array<std::uint16_t, 4> bg_priority_list() const noexcept;
@@ -39,14 +36,23 @@ class PPU
         void render_text_bg(std::uint16_t bgcnt, std::uint16_t bghofs, std::uint16_t bgvofs);
         void render_sprite(std::uint64_t sprite_entry, bool is_dim_1);
 
-        void draw_scanline_tilemap_0(std::uint16_t dispcnt);
-        void draw_scanline_tilemap_1(std::uint16_t dispcnt);
-        void draw_scanline_tilemap_2(std::uint16_t dispcnt);
+        void draw_scanline_tilemap_0();
+        void draw_scanline_tilemap_1();
+        void draw_scanline_tilemap_2();
         void draw_scanline_bitmap_3();
         void draw_scanline_bitmap_4();
         void draw_scanline_bitmap_5();
 
     private:
+        enum MMIO
+        {
+            REG_DISPCNT = 0,
+            REG_DISPSTAT = 2,
+            REG_VCOUNT = 3,
+            REGS_BGCNT = 4, // base offset to group of bgxcnt regs
+            REGS_OFS = 8 // base offset to group of vofs/hofs regs
+        };
+
         std::uint32_t m_scanline_cycles;
 };
 

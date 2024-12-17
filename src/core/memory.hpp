@@ -2,16 +2,14 @@
 #define MEMORY_HPP
 
 #include <string>
-#include <vector>
-#include <type_traits>
 
 #include "ppu.hpp"
 #include "timer.hpp"
 
-class Memory 
+class Memory
 {
     public:
-        Memory() : m_ppu(m_mmio.data()) 
+        Memory() : m_ppu(std::span<std::uint16_t, 42>{reinterpret_cast<std::uint16_t*>(m_mmio.data()), 42})
         {
             m_bios.resize(0x4000);
             m_ewram.resize(0x40000);
@@ -23,17 +21,21 @@ class Memory
 
         void load_bios();
         void load_rom(const std::string& rom_filepath);
-
-        FrameBuffer& get_frame();
         void update_key_input(std::uint16_t v) noexcept { *reinterpret_cast<std::uint16_t*>(m_mmio.data() + 0x130) = v; };
+        FrameBuffer& get_frame();
+        
         void tick_components(int cycles);
         void reset_components();
 
         template <typename T>
-        T read(std::uint32_t addr) {
-            if constexpr (std::is_same_v<T, std::uint32_t>) {
+        T read(std::uint32_t addr) 
+        {
+            if constexpr (std::is_same_v<T, std::uint32_t>) 
+            {
                 addr &= ~3;
-            } else if constexpr (std::is_same_v<T, std::uint16_t>) {
+            } 
+            else if constexpr (std::is_same_v<T, std::uint16_t>) 
+            {
                 addr &= ~1;
             }
 
@@ -49,9 +51,11 @@ class Memory
                 }
                 return *reinterpret_cast<T*>(m_mmio.data() + (addr - 0x04000000));
             case 0x05: return *reinterpret_cast<T*>(m_ppu.m_pallete_ram.data() + ((addr - 0x05000000) & 0x3FF));
-            case 0x06: {
+            case 0x06: 
+            {
                 addr = (addr - 0x06000000) & 0x1FFFF;
-                if (addr >= 0x18000 && addr <= 0x1FFFF) {
+                if (addr >= 0x18000 && addr <= 0x1FFFF) 
+                {
                     return *reinterpret_cast<T*>(m_ppu.m_vram.data() + (addr - 0x8000));
                 }
                 return *reinterpret_cast<T*>(m_ppu.m_vram.data() + addr);
@@ -69,14 +73,19 @@ class Memory
         }
 
         template <typename T>
-        void write(std::uint32_t addr, T value) {
-            if constexpr (std::is_same_v<T, std::uint32_t>) {
+        void write(std::uint32_t addr, T value) 
+        {
+            if constexpr (std::is_same_v<T, std::uint32_t>) 
+            {
                 addr &= ~3;
-            } else if constexpr (std::is_same_v<T, std::uint16_t>) {
+            } 
+            else if constexpr (std::is_same_v<T, std::uint16_t>) 
+            {
                 addr &= ~1;
             }
 
-            switch ((addr >> 24) & 0xFF) {
+            switch ((addr >> 24) & 0xFF) 
+            {
             case 0x02:
                 *reinterpret_cast<T*>(m_ewram.data() + ((addr - 0x02000000) & 0x3FFFF)) = value;
                 break;
@@ -99,7 +108,8 @@ class Memory
                     *reinterpret_cast<T*>(m_ppu.m_pallete_ram.data() + ((addr - 0x05000000) & 0x3FF)) = value;
                 }
                 break;
-            case 0x06: {
+            case 0x06: 
+            {
                 if constexpr (std::is_same_v<T, std::uint8_t>) {
                     addr = (addr - 0x06000000) & 0x1FFFF;
                     addr -= (addr >= 0x18000) * 0x8000;
@@ -121,7 +131,8 @@ class Memory
                 break;
             }
             case 0x07:
-                if constexpr (!std::is_same_v<T, std::uint8_t>) {
+                if constexpr (!std::is_same_v<T, std::uint8_t>) 
+                {
                     *reinterpret_cast<T*>(m_ppu.m_oam.data() + ((addr - 0x07000000) & 0x3FF)) = value;
                 }
                 break;
@@ -137,7 +148,7 @@ class Memory
         std::vector<std::uint8_t> m_iwram;
         std::vector<std::uint8_t> m_rom;
         std::vector<std::uint8_t> m_sram;
-        std::array<std::uint8_t, 0x304> m_mmio{};
+        std::array<std::uint8_t, 0x304> m_mmio{}; // TODO: we can probably just make this std::uint16_t
 
         PPU m_ppu;
         Timer timer;

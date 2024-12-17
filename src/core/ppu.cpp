@@ -7,7 +7,7 @@ const std::uint8_t frame_width = 240;
 
 bool PPU::is_rendering_bitmap() 
 {
-    auto rendering_mode = *reinterpret_cast<std::uint16_t*>(m_mmio) & 7;
+    auto rendering_mode = m_mmio[REG_DISPCNT] & 7;
     return (rendering_mode == 3 | rendering_mode == 4 | rendering_mode == 5);
 }
 
@@ -50,7 +50,7 @@ void PPU::render_backdrop()
     std::uint16_t backdrop_color = *reinterpret_cast<std::uint16_t*>(m_pallete_ram.data());
     for (int i = 0; i < frame_width; i++)
     {
-        m_frame[get_vcount()][i] = backdrop_color;
+        m_frame[m_mmio[REG_VCOUNT]][i] = backdrop_color;
     }
 }
 
@@ -70,7 +70,7 @@ void PPU::render_text_bg(std::uint16_t bgcnt, std::uint16_t bghofs, std::uint16_
         std::exit(1);
     }
 
-    auto combined_vofs = bgvofs + get_vcount();
+    auto combined_vofs = bgvofs + m_mmio[REG_VCOUNT];
     auto tx = ((bghofs & ~7) / 8) & (tm_width - 1);
     auto ty = ((combined_vofs & ~7) / 8) & (tm_height - 1);
     auto scanline_x = 0;
@@ -128,7 +128,7 @@ void PPU::render_text_bg(std::uint16_t bgcnt, std::uint16_t bghofs, std::uint16_
                 std::uint16_t pixel_color = *reinterpret_cast<std::uint16_t*>(m_pallete_ram.data() + (pallete_id * 2));
                 if (pixel_color != transparent_color)
                 {
-                    m_frame[get_vcount()][scanline_x] = pixel_color;
+                    m_frame[m_mmio[REG_VCOUNT]][scanline_x] = pixel_color;
                 }
                 scanline_x++;
             }
@@ -144,14 +144,14 @@ void PPU::render_sprite(std::uint64_t sprite_entry, bool is_dim_1)
     std::uint16_t sprite_size = get_sprite_size((((sprite_entry >> 0xE) & 3) << 2) | ((sprite_entry >> (16 + 0xE)) & 3));
     std::uint8_t sprite_height = sprite_size & 0xFF;
 
-    if (((y_coord + sprite_height) > get_vcount()) && (get_vcount() >= y_coord))
+    if (((y_coord + sprite_height) > m_mmio[REG_VCOUNT]) && (m_mmio[REG_VCOUNT] >= y_coord))
     {
         std::uint8_t sprite_length = (sprite_size >> 8) & 0xFF;
         std::uint16_t x_coord = (sprite_entry >> 16) & 0x1FF;
         auto tm_height = (sprite_height & ~7) / 8;
         auto tm_length = (sprite_length & ~7) / 8;
         auto base_tile_number = (sprite_entry >> 32) & 0x3FF;
-        auto tile_scanline = (get_vcount() - y_coord) - ((get_vcount() - y_coord) & ~7);
+        auto tile_scanline = (m_mmio[REG_VCOUNT] - y_coord) - ((m_mmio[REG_VCOUNT] - y_coord) & ~7);
         bool is_256_color_pallete = (sprite_entry >> 0xD) & 1;
 
         if ((sprite_entry >> 0xC) & 1)
@@ -162,7 +162,7 @@ void PPU::render_sprite(std::uint64_t sprite_entry, bool is_dim_1)
 
         for (int tx = 0; tx < tm_length; tx++)
         {
-            auto ty = ((get_vcount() - y_coord) & ~7) / 8;
+            auto ty = ((m_mmio[REG_VCOUNT] - y_coord) & ~7) / 8;
             auto tile = m_vram.data() + 0x010000
                 + ((base_tile_number + tx + (ty * (is_dim_1 ? tm_height : 32))) * (0x20 << is_256_color_pallete))
                 + (tile_scanline * (4 << is_256_color_pallete));
@@ -192,7 +192,7 @@ void PPU::render_sprite(std::uint64_t sprite_entry, bool is_dim_1)
                     std::uint16_t pixel_color = *reinterpret_cast<std::uint16_t*>(m_pallete_ram.data() + 0x200 + (pallete_id * 2));
                     if (pixel_color != transparent_color)
                     {
-                        m_frame[get_vcount()][x_coord + px] = pixel_color;
+                        m_frame[m_mmio[REG_VCOUNT]][x_coord + px] = pixel_color;
                     }
                 }
             }
@@ -206,8 +206,7 @@ std::array<std::uint16_t, 4> PPU::bg_priority_list() const noexcept
 
     for (int i = 0; i < 4; i++)
     {
-        auto bgcnt = *reinterpret_cast<std::uint16_t*>(m_mmio + 0x008 + i * 2);
-        priority_list[i] = bgcnt | (i << 4);
+        priority_list[i] = m_mmio[REGS_BGCNT + i] | (i << 4);
     }
 
     for (int i = 1; i < 4; i++)
@@ -225,7 +224,7 @@ std::array<std::uint16_t, 4> PPU::bg_priority_list() const noexcept
     return priority_list;
 }
 
-void PPU::draw_scanline_tilemap_0(std::uint16_t dispcnt) 
+void PPU::draw_scanline_tilemap_0() 
 {
     auto bg_list = bg_priority_list();
 
@@ -235,14 +234,13 @@ void PPU::draw_scanline_tilemap_0(std::uint16_t dispcnt)
         {
             auto list_idx = (i - 1) / 2;
             auto background_id = (bg_list[list_idx] >> 4) & 3;
-            bool should_display_bg = (dispcnt >> (8 + background_id)) & 1;
+            bool should_display_bg = (m_mmio[REG_DISPCNT] >> (8 + background_id)) & 1;
             if (should_display_bg)
             {
-                auto vofs_hofs = *reinterpret_cast<std::uint32_t*>(m_mmio + 0x010 + background_id * 4);
-                render_text_bg(bg_list[list_idx], vofs_hofs & 0x3FF, (vofs_hofs >> 16) & 0x3FF);
+                render_text_bg(bg_list[list_idx], m_mmio[REGS_OFS + background_id * 2] & 0x3FF, m_mmio[REGS_OFS + background_id * 2 + 1] & 0x3FF);
             }
         }
-        else if ((dispcnt >> 0xC) & 1)
+        else if ((m_mmio[REG_DISPCNT] >> 0xC) & 1)
         {
             for (int j = 127; j >= 0; j--)
             {
@@ -250,20 +248,20 @@ void PPU::draw_scanline_tilemap_0(std::uint16_t dispcnt)
                 auto priority = (sprite_entry >> (32 + 0xA)) & 3;
                 if ((i / 2) == priority)
                 {
-                    render_sprite(sprite_entry, (dispcnt >> 6) & 1);    
+                    render_sprite(sprite_entry, (m_mmio[REG_DISPCNT] >> 6) & 1);    
                 }
             }
         }
     }
 }
 
-void PPU::draw_scanline_tilemap_1(std::uint16_t dispcnt) 
+void PPU::draw_scanline_tilemap_1() 
 {
     std::cout << "scanline tilemap 1" << std::endl;
     std::exit(1);
 }
 
-void PPU::draw_scanline_tilemap_2(std::uint16_t dispcnt) 
+void PPU::draw_scanline_tilemap_2() 
 {
     std::cout << "scanline tilemap 2" << std::endl;
     std::exit(1);
@@ -273,17 +271,17 @@ void PPU::draw_scanline_bitmap_3()
 {
     for (int col = 0; col < frame_width; col++) 
     {
-        m_frame[get_vcount()][col] = *reinterpret_cast<uint16_t*>(m_vram.data() + (get_vcount() * (frame_width * 2)) + (col * 2));
+        m_frame[m_mmio[REG_VCOUNT]][col] = *reinterpret_cast<uint16_t*>(m_vram.data() + (m_mmio[REG_VCOUNT] * (frame_width * 2)) + (col * 2));
     }
 }
 
 void PPU::draw_scanline_bitmap_4()
 {
-    std::uint8_t* vram_base_ptr = m_vram.data() + (((*reinterpret_cast<std::uint16_t*>(m_mmio) >> 4) & 1) * 0xA000);
+    std::uint8_t* vram_base_ptr = m_vram.data() + (((m_mmio[REG_DISPCNT] >> 4) & 1) * 0xA000);
     for (int col = 0; col < frame_width; col++) 
     {
-        std::uint8_t pallete_idx = *(vram_base_ptr + (get_vcount() * frame_width) + col);
-        m_frame[get_vcount()][col] = *reinterpret_cast<uint16_t*>(m_pallete_ram.data() + pallete_idx * 2);
+        std::uint8_t pallete_idx = *(vram_base_ptr + (m_mmio[REG_VCOUNT] * frame_width) + col);
+        m_frame[m_mmio[REG_VCOUNT]][col] = *reinterpret_cast<uint16_t*>(m_pallete_ram.data() + pallete_idx * 2);
     }
 }
 
@@ -295,51 +293,48 @@ void PPU::draw_scanline_bitmap_5()
 
 void PPU::tick(int cycles)
 {
-    std::uint16_t* dispstat = reinterpret_cast<std::uint16_t*>(m_mmio + 0x004);
-
     for (int i = 0; i < cycles; i++)
     {
         if (m_scanline_cycles == 1232)
         {
-            *dispstat &= ~2; // hdraw has started
+            m_mmio[REG_DISPSTAT] &= ~2; // hdraw has started
+            m_mmio[REG_VCOUNT] += 1;
             m_scanline_cycles = 1;
-            update_vcount(get_vcount() + 1);
 
             // DISPTACH VCOUNT IRQ
 
-            if (get_vcount() == 228)
+            if (m_mmio[REG_VCOUNT] == 228)
             {
-                update_vcount(0);
-                *dispstat &= ~1; // vblank has ended
+                m_mmio[REG_VCOUNT] = 0;
+                m_mmio[REG_DISPSTAT] &= ~1; // vblank has ended
             }
-            else if (get_vcount() == 160)
+            else if (m_mmio[REG_VCOUNT] == 160)
             {
-                *dispstat |= 1; // vblank has started
+                m_mmio[REG_DISPSTAT] |= 1; // vblank has started
                 // DISPATCH VBLANK IRQ
             }
         }
         else if (m_scanline_cycles == 1007)
         {
-            *dispstat |= 2; // hblank has started
+            m_mmio[REG_DISPSTAT] |= 2; // hblank has started
             // DISPATCH HBLANK IRQ
         }
-        else if ((m_scanline_cycles == 960) && (get_vcount() < FRAME_HEIGHT))
+        else if ((m_scanline_cycles == 960) && (m_mmio[REG_VCOUNT] < FRAME_HEIGHT))
         {
-            std::uint16_t dispcnt = *reinterpret_cast<std::uint16_t*>(m_mmio);
-            bool should_force_blank = (dispcnt >> 7) & 1;
+            bool should_force_blank = (m_mmio[REG_DISPCNT] >> 7) & 1;
             if (!should_force_blank)
             {
                 render_backdrop();
-                switch (dispcnt & 7) 
+                switch (m_mmio[REG_DISPCNT] & 7) 
                 {
                 case 0:
-                    draw_scanline_tilemap_0(dispcnt);
+                    draw_scanline_tilemap_0();
                     break;
                 case 1:
-                    draw_scanline_tilemap_1(dispcnt);
+                    draw_scanline_tilemap_1();
                     break;
                 case 2:
-                    draw_scanline_tilemap_2(dispcnt);
+                    draw_scanline_tilemap_2();
                     break;
                 case 3:
                     draw_scanline_bitmap_3();
@@ -357,7 +352,7 @@ void PPU::tick(int cycles)
             {
                 for (int col = 0; col < frame_width; col++)
                 {
-                    m_frame[get_vcount()][col] = 0xFFFF;
+                    m_frame[m_mmio[REG_VCOUNT]][col] = 0xFFFF;
                 }
             }
         }

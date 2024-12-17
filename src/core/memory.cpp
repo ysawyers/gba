@@ -48,7 +48,7 @@ void Memory::reset_components()
     m_iwram.clear();
     update_key_input(0xFFFF);
     m_mmio = {};
-    m_ppu = {m_mmio.data()};
+    // m_ppu = {m_mmio.data()};
 }
 
 FrameBuffer& Memory::get_frame() 
