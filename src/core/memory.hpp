@@ -8,18 +8,26 @@
 #include "ppu.hpp"
 #include "timer.hpp"
 
-class Memory {
+class Memory 
+{
     public:
-        Memory() : m_key_input(0xFFFF), m_ppu(m_mmio.data()) {
+        Memory() : m_ppu(m_mmio.data()) 
+        {
             m_bios.resize(0x4000);
             m_ewram.resize(0x40000);
             m_iwram.resize(0x8000);
             m_rom.resize(0x2000000);
             m_sram.resize(0xFFFF);
+            update_key_input(0xFFFF);
         }
 
         void load_bios();
         void load_rom(const std::string& rom_filepath);
+
+        FrameBuffer& get_frame();
+        void update_key_input(std::uint16_t v) noexcept { *reinterpret_cast<std::uint16_t*>(m_mmio.data() + 0x130) = v; };
+        void tick_components(int cycles);
+        void reset_components();
 
         template <typename T>
         T read(std::uint32_t addr) {
@@ -33,21 +41,13 @@ class Memory {
             case 0x00: return *reinterpret_cast<T*>(m_bios.data() + addr);
             case 0x02: return *reinterpret_cast<T*>(m_ewram.data() + ((addr - 0x02000000) & 0x3FFFF));
             case 0x03: return *reinterpret_cast<T*>(m_iwram.data() + ((addr - 0x03000000) & 0x7FFF));
-            case 0x04: {
-                // TODO: Just use the array to access vcount/keyinput and make this branchless
-                addr -= 0x04000000;
-                switch (addr) {
-                case 0x006: return m_ppu.m_vcount;
-                case 0x120: // scd0
-                case 0x122: // scd1
-                case 0x124: // scd2
-                case 0x126: // scd3
-                    // TODO: unimplemented
-                    return 0;
-                case 0x130: return m_key_input;
-                default: return *reinterpret_cast<T*>(m_mmio.data() + addr);
+            case 0x04:
+                if (addr > 0x040003FF)
+                {
+                    printf("THERE'S A PROBLEM!\n");
+                    exit(1);
                 }
-            }
+                return *reinterpret_cast<T*>(m_mmio.data() + (addr - 0x04000000));
             case 0x05: return *reinterpret_cast<T*>(m_ppu.m_pallete_ram.data() + ((addr - 0x05000000) & 0x3FF));
             case 0x06: {
                 addr = (addr - 0x06000000) & 0x1FFFF;
@@ -83,20 +83,14 @@ class Memory {
             case 0x03:
                 *reinterpret_cast<T*>(m_iwram.data() + ((addr - 0x03000000) & 0x7FFF)) = value;
                 break;
-            case 0x04: 
-            {
-                addr -= 0x04000000;
-                if constexpr (std::is_same_v<T, std::uint16_t>)
+            case 0x04:
+                if (addr > 0x040003FF)
                 {
-                    if (addr == 0x202) 
-                    {
-                        *reinterpret_cast<T*>(m_mmio.data() + addr) &= ~value;
-                        break;
-                    }
+                    printf("THERE'S A PROBLEM!\n");
+                    exit(1);
                 }
-                *reinterpret_cast<T*>(m_mmio.data() + addr) = value;
+                *reinterpret_cast<T*>(m_mmio.data() + (addr - 0x04000000)) = value;
                 break;
-            }
             case 0x05:
                 if constexpr (std::is_same_v<T, std::uint8_t>) {
                     std::uint16_t duplicated_halfword = (value << 8) | value;
@@ -136,15 +130,6 @@ class Memory {
                 break;
             }
         }
-
-        void tick_components(int cycles);
-        void reset_components();
-
-        bool pending_interrupts();
-
-        FrameBuffer& get_frame();
-
-        std::uint16_t m_key_input;
 
     private:
         std::vector<std::uint8_t> m_bios;

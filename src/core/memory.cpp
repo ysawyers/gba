@@ -3,6 +3,8 @@
 #include <fstream>
 #include <iostream>
 
+// TODO: https://gbadev.net/gbadoc/registers.html#dma-control-registers
+
 void Memory::load_bios() 
 {
     FILE *fp = fopen("roms/bios.bin", "rb");
@@ -35,13 +37,6 @@ void Memory::load_rom(const std::string& rom_filepath)
     fclose(fp);
 }
 
-bool Memory::pending_interrupts() 
-{
-    bool ime = m_mmio[0x208] & 1;
-    auto if_ie = *reinterpret_cast<std::uint32_t*>(m_mmio.data() + 0x200);
-    return ime && ((if_ie >> 16) & 0xFFFF) & (if_ie & 0xFFFF);
-}
-
 void Memory::tick_components(int cycles)
 {
     m_ppu.tick(cycles);
@@ -51,7 +46,7 @@ void Memory::reset_components()
 {
     m_ewram.clear();
     m_iwram.clear();
-    m_key_input = 0xFFFF;
+    update_key_input(0xFFFF);
     m_mmio = {};
     m_ppu = {m_mmio.data()};
 }

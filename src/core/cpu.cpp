@@ -3,7 +3,6 @@
 #include <algorithm>
 #include <iostream>
 #include <utility>
-
 #include <cassert>
 
 static const int CYCLES_PER_FRAME = 280896;
@@ -873,9 +872,6 @@ int CPU::execute()
         m_pipeline = fetch_thumb();
         m_pipeline_invalid = false;
 
-        if (handle_interrupts())
-            return 1;
-
         switch (m_thumb_lut[instr >> 6]) 
         {
         case InstrFormat::THUMB_1: return alu(thumb_translate_1(instr));
@@ -994,9 +990,6 @@ int CPU::execute()
         m_pipeline = fetch_arm();
         m_pipeline_invalid = false;
 
-        if (handle_interrupts())
-            return 1;
-
         if (condition(instr)) [[likely]] 
         {
             std::uint16_t opcode = (((instr >> 20) & 0xFF) << 4) | ((instr >> 4) & 0xF);
@@ -1039,33 +1032,20 @@ FrameBuffer& CPU::view_current_frame()
     return m_mem.get_frame();
 }
 
-bool CPU::handle_interrupts()
-{
-    if (!is_irq_disabled() && m_mem.pending_interrupts())
-    {
-        m_banked_regs[IRQ][14] = m_banked_regs[m_mode][15] - (is_thumb_enabled() ? 0 : 4);
-        m_banked_regs[IRQ].m_control = m_banked_regs[SYS].m_control;
-        m_banked_regs[IRQ].m_flags = m_banked_regs[SYS].m_flags;
-        update_cpsr_irq_disable(true);
-        update_cpsr_thumb_status(false);
-        bank_transfer(0b10010);
-        m_banked_regs[m_mode][15] = 0x00000018;
-        m_pipeline_invalid = true;
-        return true;
-    }
-    return false;
-}
-
 int CPU::step()
 {
     int cycles = execute();
+
+    // NOTE: CPU should run at 1cpi for now
+    assert(cycles == 1);
+
     m_mem.tick_components(cycles);
     return cycles;
 }
 
 FrameBuffer& CPU::render_frame(std::uint16_t key_input, std::uint32_t breakpoint, bool& breakpoint_reached) 
 {
-    m_mem.m_key_input = key_input;
+    m_mem.update_key_input(key_input);
 
     int total_cycles = 0;
     while (total_cycles < CYCLES_PER_FRAME) 

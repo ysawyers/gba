@@ -6,28 +6,31 @@
 
 typedef std::array<std::array<std::uint16_t, 240>, 160> FrameBuffer;
 
-class PPU {
+class PPU 
+{
     public:
-        PPU(std::uint8_t* mmio) : m_vcount(0), m_mmio(mmio), m_scanline_cycles(0) 
+        PPU(std::uint8_t* mmio) : m_mmio(mmio), m_scanline_cycles(1) 
         {
             m_vram.resize(0x18000);
             m_oam.resize(0x400);
             m_pallete_ram.resize(0x400);
         }
 
-        void tick(int cycles);
-
+        std::uint8_t get_vcount() const noexcept { return m_mmio[6]; };
         bool is_rendering_bitmap();
+
+        void tick(int cycles);
 
     public:
         FrameBuffer m_frame{{}};
-        std::uint16_t m_vcount;
         std::vector<std::uint8_t> m_vram;
         std::vector<std::uint8_t> m_oam;
         std::vector<std::uint8_t> m_pallete_ram;
         std::uint8_t* m_mmio;
 
     private:
+        void update_vcount(std::uint8_t v) noexcept { m_mmio[6] = v; };
+
         std::uint16_t get_tile_offset(int tx, int ty, bool bg_reg_64x64) const noexcept;
         std::uint16_t get_sprite_size(std::uint8_t shape) const noexcept;
         std::array<std::uint16_t, 4> bg_priority_list() const noexcept;

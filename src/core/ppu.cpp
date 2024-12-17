@@ -50,7 +50,7 @@ void PPU::render_backdrop()
     std::uint16_t backdrop_color = *reinterpret_cast<std::uint16_t*>(m_pallete_ram.data());
     for (int i = 0; i < frame_width; i++)
     {
-        m_frame[m_vcount][i] = backdrop_color;
+        m_frame[get_vcount()][i] = backdrop_color;
     }
 }
 
@@ -70,7 +70,7 @@ void PPU::render_text_bg(std::uint16_t bgcnt, std::uint16_t bghofs, std::uint16_
         std::exit(1);
     }
 
-    auto combined_vofs = bgvofs + m_vcount;
+    auto combined_vofs = bgvofs + get_vcount();
     auto tx = ((bghofs & ~7) / 8) & (tm_width - 1);
     auto ty = ((combined_vofs & ~7) / 8) & (tm_height - 1);
     auto scanline_x = 0;
@@ -80,16 +80,16 @@ void PPU::render_text_bg(std::uint16_t bgcnt, std::uint16_t bghofs, std::uint16_
         auto screen_entry = *reinterpret_cast<std::uint16_t*>(tile_map_base + get_tile_offset(tx, ty, bg_reg_64x64));
         auto tile_id = screen_entry & 0x3FF;
         auto pallete_bank = ((screen_entry >> 0xC) & 0xF) << 4;
-        bool hz_flip = (screen_entry >> 0xA) & 1;
-        bool vf_flip = (screen_entry >> 0xB) & 1;
+        bool h_flip = (screen_entry >> 0xA) & 1;
+        bool v_flip = (screen_entry >> 0xB) & 1;
 
         auto tile_scanline = combined_vofs - (combined_vofs & ~7);
         auto tile = tile_data_base 
             + (tile_id * (0x20 << color_pallete)) 
-            + ((vf_flip ? 7 - tile_scanline : tile_scanline) * (4 << color_pallete));
+            + ((v_flip ? 7 - tile_scanline : tile_scanline) * (4 << color_pallete));
 
         int start, end, step;
-        if (hz_flip) 
+        if (h_flip) 
         {
             start = 3;
             end = -1;
@@ -104,7 +104,7 @@ void PPU::render_text_bg(std::uint16_t bgcnt, std::uint16_t bghofs, std::uint16_
 
         for (int i = start; i != end; i += step) 
         {
-            for (int nibble = hz_flip; nibble != (!hz_flip + step); nibble += step) 
+            for (int nibble = h_flip; nibble != (!h_flip + step); nibble += step) 
             {
                 if (scanline_x >= frame_width) return;
 
@@ -128,7 +128,7 @@ void PPU::render_text_bg(std::uint16_t bgcnt, std::uint16_t bghofs, std::uint16_
                 std::uint16_t pixel_color = *reinterpret_cast<std::uint16_t*>(m_pallete_ram.data() + (pallete_id * 2));
                 if (pixel_color != transparent_color)
                 {
-                    m_frame[m_vcount][scanline_x] = pixel_color;
+                    m_frame[get_vcount()][scanline_x] = pixel_color;
                 }
                 scanline_x++;
             }
@@ -144,19 +144,25 @@ void PPU::render_sprite(std::uint64_t sprite_entry, bool is_dim_1)
     std::uint16_t sprite_size = get_sprite_size((((sprite_entry >> 0xE) & 3) << 2) | ((sprite_entry >> (16 + 0xE)) & 3));
     std::uint8_t sprite_height = sprite_size & 0xFF;
 
-    if (((y_coord + sprite_height) > m_vcount) && (m_vcount >= y_coord))
+    if (((y_coord + sprite_height) > get_vcount()) && (get_vcount() >= y_coord))
     {
         std::uint8_t sprite_length = (sprite_size >> 8) & 0xFF;
         std::uint16_t x_coord = (sprite_entry >> 16) & 0x1FF;
         auto tm_height = (sprite_height & ~7) / 8;
         auto tm_length = (sprite_length & ~7) / 8;
         auto base_tile_number = (sprite_entry >> 32) & 0x3FF;
-        auto tile_scanline = (m_vcount - y_coord) - ((m_vcount - y_coord) & ~7);
+        auto tile_scanline = (get_vcount() - y_coord) - ((get_vcount() - y_coord) & ~7);
         bool is_256_color_pallete = (sprite_entry >> 0xD) & 1;
+
+        if ((sprite_entry >> 0xC) & 1)
+        {
+            printf("ENABLE MOSAIC FOR THIS SPRITE!\n");
+            exit(1);
+        }
 
         for (int tx = 0; tx < tm_length; tx++)
         {
-            auto ty = ((m_vcount - y_coord) & ~7) / 8;
+            auto ty = ((get_vcount() - y_coord) & ~7) / 8;
             auto tile = m_vram.data() + 0x010000
                 + ((base_tile_number + tx + (ty * (is_dim_1 ? tm_height : 32))) * (0x20 << is_256_color_pallete))
                 + (tile_scanline * (4 << is_256_color_pallete));
@@ -186,7 +192,7 @@ void PPU::render_sprite(std::uint64_t sprite_entry, bool is_dim_1)
                     std::uint16_t pixel_color = *reinterpret_cast<std::uint16_t*>(m_pallete_ram.data() + 0x200 + (pallete_id * 2));
                     if (pixel_color != transparent_color)
                     {
-                        m_frame[m_vcount][x_coord + px] = pixel_color;
+                        m_frame[get_vcount()][x_coord + px] = pixel_color;
                     }
                 }
             }
@@ -238,7 +244,7 @@ void PPU::draw_scanline_tilemap_0(std::uint16_t dispcnt)
         }
         else if ((dispcnt >> 0xC) & 1)
         {
-            for (int j = 0; j < 128; j++)
+            for (int j = 127; j >= 0; j--)
             {
                 auto sprite_entry = *reinterpret_cast<std::uint64_t*>(m_oam.data() + j * 8);
                 auto priority = (sprite_entry >> (32 + 0xA)) & 3;
@@ -267,7 +273,7 @@ void PPU::draw_scanline_bitmap_3()
 {
     for (int col = 0; col < frame_width; col++) 
     {
-        m_frame[m_vcount][col] = *reinterpret_cast<uint16_t*>(m_vram.data() + (m_vcount * (frame_width * 2)) + (col * 2));
+        m_frame[get_vcount()][col] = *reinterpret_cast<uint16_t*>(m_vram.data() + (get_vcount() * (frame_width * 2)) + (col * 2));
     }
 }
 
@@ -276,8 +282,8 @@ void PPU::draw_scanline_bitmap_4()
     std::uint8_t* vram_base_ptr = m_vram.data() + (((*reinterpret_cast<std::uint16_t*>(m_mmio) >> 4) & 1) * 0xA000);
     for (int col = 0; col < frame_width; col++) 
     {
-        std::uint8_t pallete_idx = *(vram_base_ptr + (m_vcount * frame_width) + col);
-        m_frame[m_vcount][col] = *reinterpret_cast<uint16_t*>(m_pallete_ram.data() + pallete_idx * 2);
+        std::uint8_t pallete_idx = *(vram_base_ptr + (get_vcount() * frame_width) + col);
+        m_frame[get_vcount()][col] = *reinterpret_cast<uint16_t*>(m_pallete_ram.data() + pallete_idx * 2);
     }
 }
 
@@ -289,72 +295,72 @@ void PPU::draw_scanline_bitmap_5()
 
 void PPU::tick(int cycles)
 {
+    std::uint16_t* dispstat = reinterpret_cast<std::uint16_t*>(m_mmio + 0x004);
+
     for (int i = 0; i < cycles; i++)
     {
-        std::uint16_t* dispstat = reinterpret_cast<std::uint16_t*>(m_mmio + 0x004);
-
-        if (m_scanline_cycles == 1006)
+        if (m_scanline_cycles == 1232)
         {
-            *dispstat |= 2;
-            if ((*dispstat >> 4) & 1)
+            *dispstat &= ~2; // hdraw has started
+            m_scanline_cycles = 1;
+            update_vcount(get_vcount() + 1);
+
+            // DISPTACH VCOUNT IRQ
+
+            if (get_vcount() == 228)
             {
-                *reinterpret_cast<std::uint16_t*>(m_mmio + 0x202) |= (1 << 1);
+                update_vcount(0);
+                *dispstat &= ~1; // vblank has ended
+            }
+            else if (get_vcount() == 160)
+            {
+                *dispstat |= 1; // vblank has started
+                // DISPATCH VBLANK IRQ
             }
         }
-        else if (m_scanline_cycles == 0)
+        else if (m_scanline_cycles == 1007)
         {
-            if (m_vcount < FRAME_HEIGHT)
+            *dispstat |= 2; // hblank has started
+            // DISPATCH HBLANK IRQ
+        }
+        else if ((m_scanline_cycles == 960) && (get_vcount() < FRAME_HEIGHT))
+        {
+            std::uint16_t dispcnt = *reinterpret_cast<std::uint16_t*>(m_mmio);
+            bool should_force_blank = (dispcnt >> 7) & 1;
+            if (!should_force_blank)
             {
                 render_backdrop();
-
-                *dispstat &= ~3;
-                std::uint16_t dispcnt = *reinterpret_cast<std::uint16_t*>(m_mmio);
-                bool should_force_blank = (dispcnt >> 7) & 1;
-                if (!should_force_blank)
+                switch (dispcnt & 7) 
                 {
-                    switch (dispcnt & 7) 
-                    {
-                    case 0:
-                        draw_scanline_tilemap_0(dispcnt);
-                        break;
-                    case 1:
-                        draw_scanline_tilemap_1(dispcnt);
-                        break;
-                    case 2:
-                        draw_scanline_tilemap_2(dispcnt);
-                        break;
-                    case 3:
-                        draw_scanline_bitmap_3();
-                        break;
-                    case 4:
-                        draw_scanline_bitmap_4();
-                        break;
-                    case 5:
-                        draw_scanline_bitmap_5();
-                        break;
-                    default: std::unreachable();
-                    }
+                case 0:
+                    draw_scanline_tilemap_0(dispcnt);
+                    break;
+                case 1:
+                    draw_scanline_tilemap_1(dispcnt);
+                    break;
+                case 2:
+                    draw_scanline_tilemap_2(dispcnt);
+                    break;
+                case 3:
+                    draw_scanline_bitmap_3();
+                    break;
+                case 4:
+                    draw_scanline_bitmap_4();
+                    break;
+                case 5:
+                    draw_scanline_bitmap_5();
+                    break;
+                default: std::unreachable();
                 }
             }
             else
             {
-                *dispstat |= 1;
+                for (int col = 0; col < frame_width; col++)
+                {
+                    m_frame[get_vcount()][col] = 0xFFFF;
+                }
             }
-
-            if ((*dispstat >> 5) & 1)
-            {
-                std::uint8_t vcount_line_trigger = (*dispstat >> 8) & 0xFF;
-                *reinterpret_cast<std::uint16_t*>(m_mmio + 0x202) |= ((m_vcount == vcount_line_trigger) << 2);
-                *dispstat |= 4;
-            }
-            if ((*dispstat >> 3) & 1)
-            {
-                *reinterpret_cast<std::uint16_t*>(m_mmio + 0x202) |= (m_vcount == 0xA0);
-            }
-
-            m_vcount = (m_vcount + 1) % 228;
         }
-
-        m_scanline_cycles = (m_scanline_cycles + 1) % 1232;
+        m_scanline_cycles++;
     }
 }
