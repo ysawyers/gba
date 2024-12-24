@@ -1,15 +1,7 @@
 #include "ppu.hpp"
 
-#include <iostream>
-
 const std::uint8_t FRAME_HEIGHT = 160;
-const std::uint8_t frame_width = 240;
-
-bool PPU::is_rendering_bitmap() 
-{
-    auto rendering_mode = m_mmio[REG_DISPCNT] & 7;
-    return (rendering_mode == 3 | rendering_mode == 4 | rendering_mode == 5);
-}
+const std::uint8_t FRAME_WIDTH = 240;
 
 std::uint16_t PPU::get_tile_offset(int tx, int ty, bool bg_reg_64x64) const noexcept
 {
@@ -48,7 +40,7 @@ std::uint16_t PPU::get_sprite_size(std::uint8_t shape) const noexcept
 void PPU::render_backdrop()
 {
     std::uint16_t backdrop_color = *reinterpret_cast<std::uint16_t*>(m_pallete_ram.data());
-    for (int i = 0; i < frame_width; i++)
+    for (int i = 0; i < FRAME_WIDTH; i++)
     {
         m_frame[m_mmio[REG_VCOUNT]][i] = backdrop_color;
     }
@@ -106,7 +98,7 @@ void PPU::render_text_bg(std::uint16_t bgcnt, std::uint16_t bghofs, std::uint16_
         {
             for (int nibble = h_flip; nibble != (!h_flip + step); nibble += step) 
             {
-                if (scanline_x >= frame_width) return;
+                if (scanline_x >= FRAME_WIDTH) return;
 
                 int px = i * 2 + nibble;
                 if (!scanline_x && (px < (bghofs - (bghofs & ~7)))) continue;
@@ -156,8 +148,8 @@ void PPU::render_sprite(std::uint64_t sprite_entry, bool is_dim_1)
 
         if ((sprite_entry >> 0xC) & 1)
         {
-            printf("ENABLE MOSAIC FOR THIS SPRITE!\n");
-            exit(1);
+            // printf("ENABLE MOSAIC FOR THIS SPRITE!\n");
+            // exit(1);
         }
 
         for (int tx = 0; tx < tm_length; tx++)
@@ -257,37 +249,37 @@ void PPU::draw_scanline_tilemap_0()
 
 void PPU::draw_scanline_tilemap_1() 
 {
-    std::cout << "scanline tilemap 1" << std::endl;
+    printf("scanline tilemap 1\n");
     std::exit(1);
 }
 
 void PPU::draw_scanline_tilemap_2() 
 {
-    std::cout << "scanline tilemap 2" << std::endl;
+    printf("scanline tilemap 2\n");
     std::exit(1);
 }
 
 void PPU::draw_scanline_bitmap_3() 
 {
-    for (int col = 0; col < frame_width; col++) 
+    for (int col = 0; col < FRAME_WIDTH; col++) 
     {
-        m_frame[m_mmio[REG_VCOUNT]][col] = *reinterpret_cast<uint16_t*>(m_vram.data() + (m_mmio[REG_VCOUNT] * (frame_width * 2)) + (col * 2));
+        m_frame[m_mmio[REG_VCOUNT]][col] = *reinterpret_cast<uint16_t*>(m_vram.data() + (m_mmio[REG_VCOUNT] * (FRAME_WIDTH * 2)) + (col * 2));
     }
 }
 
 void PPU::draw_scanline_bitmap_4()
 {
     std::uint8_t* vram_base_ptr = m_vram.data() + (((m_mmio[REG_DISPCNT] >> 4) & 1) * 0xA000);
-    for (int col = 0; col < frame_width; col++) 
+    for (int col = 0; col < FRAME_WIDTH; col++) 
     {
-        std::uint8_t pallete_idx = *(vram_base_ptr + (m_mmio[REG_VCOUNT] * frame_width) + col);
+        std::uint8_t pallete_idx = *(vram_base_ptr + (m_mmio[REG_VCOUNT] * FRAME_WIDTH) + col);
         m_frame[m_mmio[REG_VCOUNT]][col] = *reinterpret_cast<uint16_t*>(m_pallete_ram.data() + pallete_idx * 2);
     }
 }
 
 void PPU::draw_scanline_bitmap_5() 
 {
-    std::cout << "scanline bitmap 5" << std::endl;
+    printf("scanline bitmap 5\n");
     std::exit(1);
 }
 
@@ -301,7 +293,9 @@ void PPU::tick(int cycles)
             m_mmio[REG_VCOUNT] += 1;
             m_scanline_cycles = 1;
 
-            // DISPTACH VCOUNT IRQ
+            bool trigger_vcount_irq = ((m_mmio[REG_DISPSTAT] >> 5) & 1) && (((m_mmio[REG_DISPSTAT] >> 8) & 0xFF) == m_mmio[REG_VCOUNT]);
+            m_mmio[REG_DISPSTAT] |= trigger_vcount_irq << 2;
+            *m_if_reg |= trigger_vcount_irq << 2;
 
             if (m_mmio[REG_VCOUNT] == 228)
             {
@@ -311,13 +305,13 @@ void PPU::tick(int cycles)
             else if (m_mmio[REG_VCOUNT] == 160)
             {
                 m_mmio[REG_DISPSTAT] |= 1; // vblank has started
-                // DISPATCH VBLANK IRQ
+                *m_if_reg |= (m_mmio[REG_DISPSTAT] >> 3) & 1;
             }
         }
         else if (m_scanline_cycles == 1007)
         {
             m_mmio[REG_DISPSTAT] |= 2; // hblank has started
-            // DISPATCH HBLANK IRQ
+            *m_if_reg |= ((m_mmio[REG_DISPSTAT] >> 4) & 1) << 1;
         }
         else if ((m_scanline_cycles == 960) && (m_mmio[REG_VCOUNT] < FRAME_HEIGHT))
         {
@@ -350,9 +344,9 @@ void PPU::tick(int cycles)
             }
             else
             {
-                for (int col = 0; col < frame_width; col++)
+                for (int col = 0; col < FRAME_WIDTH; col++)
                 {
-                    m_frame[m_mmio[REG_VCOUNT]][col] = 0xFFFF;
+                    m_frame[m_mmio[REG_VCOUNT]][col] = 0x7FFF;
                 }
             }
         }

@@ -12,14 +12,16 @@ class Debugger;
 class CPU
 {
     public:
-        struct Flags {
+        struct Flags // TODO: maybe use std::bitset instead?
+        {
             std::uint8_t n;
             std::uint8_t z;
             std::uint8_t c;
             std::uint8_t v;
         };
 
-        class Registers {
+        class Registers 
+        {
             public:
                 Registers() : m_control(0), m_list({}) {};
 
@@ -39,21 +41,23 @@ class CPU
         FrameBuffer& render_frame(std::uint16_t key_input, std::uint32_t breakpoint, bool& breakpoint_reached);
         FrameBuffer& view_current_frame();
         int step();
-
         void reset();
 
         friend class Debugger;
 
     private:
-        enum Mode {
+        enum Mode 
+        {
             SYS = 0, FIQ, SVC, ABT, IRQ, UND
         };
 
-        enum class ShiftType {
+        enum class ShiftType 
+        {
             LSL = 0, LSR, ASR, ROR
         };
 
-        enum class InstrFormat : std::uint8_t {
+        enum class InstrFormat : std::uint8_t 
+        {
             NOP = 0, B, BX, SWP, MRS, SWI, MUL, MSR, ALU, 
             SINGLE_TRANSFER, HALFWORD_TRANSFER, BLOCK_TRANSFER,
             THUMB_1, THUMB_2, THUMB_3, THUMB_4, THUMB_5_ALU, THUMB_5_BX,
@@ -67,7 +71,6 @@ class CPU
         std::uint32_t fetch_arm();
         std::uint16_t fetch_thumb();
         int execute();
-        bool handle_interrupts();
 
         void barrel_shifter(
             std::uint32_t& op,

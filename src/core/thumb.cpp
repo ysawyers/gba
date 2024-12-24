@@ -1,6 +1,7 @@
 #include "cpu.hpp"
 
-std::uint32_t CPU::thumb_translate_1(std::uint16_t instr) {
+std::uint32_t CPU::thumb_translate_1(std::uint16_t instr) 
+{
     std::uint32_t translation = 0b11100001101100000000000000000000;
     std::uint32_t shift_amount = (instr >> 6) & 0x1F;
     std::uint32_t rs = (instr >> 3) & 0x7;
@@ -13,7 +14,8 @@ std::uint32_t CPU::thumb_translate_1(std::uint16_t instr) {
     return translation;
 }
 
-std::uint32_t CPU::thumb_translate_2(std::uint16_t instr) {
+std::uint32_t CPU::thumb_translate_2(std::uint16_t instr) 
+{
     std::uint32_t translation = 0b11100000000100000000000000000000;
     std::uint32_t rn_or_nn = (instr >> 6) & 0x7;
     std::uint32_t rs = (instr >> 3) & 0x7;
@@ -28,7 +30,8 @@ std::uint32_t CPU::thumb_translate_2(std::uint16_t instr) {
     return translation;
 }
 
-std::uint32_t CPU::thumb_translate_3(std::uint16_t instr) {
+std::uint32_t CPU::thumb_translate_3(std::uint16_t instr) 
+{
     std::uint32_t translation = 0b11100010000100000000000000000000;
     std::uint32_t rd = (instr >> 8) & 0x7;
     std::uint32_t nn = instr & 0xFF;
@@ -43,7 +46,8 @@ std::uint32_t CPU::thumb_translate_3(std::uint16_t instr) {
     return translation;
 }
 
-std::uint32_t CPU::thumb_translate_5_alu(std::uint16_t instr) {
+std::uint32_t CPU::thumb_translate_5_alu(std::uint16_t instr) 
+{
     std::uint32_t translation = 0b11100000000000000000000000000000;
     std::uint32_t rd = (((instr >> 7) & 1) << 3) | (instr & 0x7);
     std::uint32_t rs = (((instr >> 6) & 1) << 3) | ((instr >> 3) & 0x7);
@@ -58,14 +62,16 @@ std::uint32_t CPU::thumb_translate_5_alu(std::uint16_t instr) {
     return translation;
 }
 
-std::uint32_t CPU::thumb_translate_5_bx(std::uint16_t instr) {
+std::uint32_t CPU::thumb_translate_5_bx(std::uint16_t instr) 
+{
     std::uint32_t translation = 0b11100001001011111111111100010000;
     std::uint32_t rs = (((instr >> 6) & 1) << 3) | ((instr >> 3) & 0x7);
     translation |= rs;
     return translation;
 }
 
-std::uint32_t CPU::thumb_translate_7(std::uint16_t instr) {
+std::uint32_t CPU::thumb_translate_7(std::uint16_t instr) 
+{
     std::uint32_t translation = 0b11100111100000000000000000000000;
     std::uint32_t ro = (instr >> 6) & 0x7;
     std::uint32_t rb = (instr >> 3) & 0x7;
@@ -80,7 +86,8 @@ std::uint32_t CPU::thumb_translate_7(std::uint16_t instr) {
     return translation;
 }
 
-std::uint32_t CPU::thumb_translate_8(std::uint16_t instr) {
+std::uint32_t CPU::thumb_translate_8(std::uint16_t instr) 
+{
     std::uint32_t translation = 0b11100001100000000000000010010000;
     std::uint32_t ro = (instr >> 6) & 0x7;
     std::uint32_t rb = (instr >> 3) & 0x7;
@@ -96,7 +103,8 @@ std::uint32_t CPU::thumb_translate_8(std::uint16_t instr) {
     return translation;
 }
 
-std::uint32_t CPU::thumb_translate_9(std::uint16_t instr) {
+std::uint32_t CPU::thumb_translate_9(std::uint16_t instr) 
+{
     std::uint32_t translation = 0b11100101100000000000000000000000;
     std::uint32_t rb = (instr >> 3) & 0x7;
     std::uint32_t rd = instr & 0x7;
@@ -111,7 +119,8 @@ std::uint32_t CPU::thumb_translate_9(std::uint16_t instr) {
     return translation;
 }
 
-std::uint32_t CPU::thumb_translate_10(std::uint16_t instr) {
+std::uint32_t CPU::thumb_translate_10(std::uint16_t instr) 
+{
     std::uint32_t translation = 0b11100001110000000000000010110000;
     std::uint32_t rb = (instr >> 3) & 0x7;
     std::uint32_t rd = instr & 0x7;
@@ -125,7 +134,8 @@ std::uint32_t CPU::thumb_translate_10(std::uint16_t instr) {
     return translation;
 }
 
-std::uint32_t CPU::thumb_translate_11(std::uint16_t instr) {
+std::uint32_t CPU::thumb_translate_11(std::uint16_t instr) 
+{
     std::uint32_t translation = 0b11100101100011010000000000000000;
     std::uint32_t l = (instr >> 11) & 1;
     std::uint32_t rd = (instr >> 8) & 0x7;
@@ -136,14 +146,16 @@ std::uint32_t CPU::thumb_translate_11(std::uint16_t instr) {
     return translation;
 }
 
-std::uint32_t CPU::thumb_translate_13(std::uint16_t instr) {
+std::uint32_t CPU::thumb_translate_13(std::uint16_t instr) 
+{
     std::uint32_t translation = 0b11100010000011011101111100000000;
     translation |= (4 << (21 - ((instr >> 7) & 1)));
     translation |= (instr & 0x7F);
     return translation;
 }
 
-std::uint32_t CPU::thumb_translate_14(std::uint16_t instr) {
+std::uint32_t CPU::thumb_translate_14(std::uint16_t instr) 
+{
     std::uint32_t translation = 0b11101000001011010000000000000000;
     std::uint32_t opcode = (instr >> 11) & 1;
     std::uint32_t pc_or_lr = (instr >> 8) & 1;
@@ -156,7 +168,8 @@ std::uint32_t CPU::thumb_translate_14(std::uint16_t instr) {
     return translation;
 }
 
-std::uint32_t CPU::thumb_translate_15(std::uint16_t instr) {
+std::uint32_t CPU::thumb_translate_15(std::uint16_t instr) 
+{
     std::uint32_t translation = 0b11101000101000000000000000000000;
     std::uint32_t opcode = (instr >> 11) & 1;
     std::uint32_t rb = (instr >> 8) & 0x7;
@@ -167,7 +180,8 @@ std::uint32_t CPU::thumb_translate_15(std::uint16_t instr) {
     return translation;
 }
 
-std::uint32_t CPU::thumb_translate_16(std::uint16_t instr) {
+std::uint32_t CPU::thumb_translate_16(std::uint16_t instr) 
+{
     std::uint32_t translation = 0b00001010000000000000000000000000;
     std::uint32_t cond = (instr >> 8) & 0xF;
     std::uint32_t offset = static_cast<std::int32_t>(static_cast<std::int8_t>((instr & 0xFF)));
@@ -176,13 +190,15 @@ std::uint32_t CPU::thumb_translate_16(std::uint16_t instr) {
     return translation;
 }
 
-std::uint32_t CPU::thumb_translate_17(std::uint16_t instr) {
+std::uint32_t CPU::thumb_translate_17(std::uint16_t instr) 
+{
     std::uint32_t translation = 0b11101111000000000000000000000000;
     translation |= (instr & 0xFF);
     return translation;
 }
 
-std::uint32_t CPU::thumb_translate_18(std::uint16_t instr) {
+std::uint32_t CPU::thumb_translate_18(std::uint16_t instr) 
+{
     std::uint32_t translation = 0b11101010000000000000000000000000;
     std::uint32_t offset = static_cast<std::int32_t>((static_cast<std::int16_t>((instr & 0x7FF) << 5) >> 5));
     translation |= (offset & 0xFFFFFF);

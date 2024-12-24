@@ -10,22 +10,31 @@ typedef std::array<std::array<std::uint16_t, 240>, 160> FrameBuffer;
 class PPU
 {
     public:
-        PPU(std::span<std::uint16_t, 42> mmio) : m_mmio(mmio), m_scanline_cycles(1) 
+        PPU(std::span<std::uint16_t, 42> mmio, uint8_t *if_reg) : m_mmio(mmio), m_if_reg(if_reg), m_scanline_cycles(1)
         {
             m_vram.resize(0x18000);
             m_oam.resize(0x400);
             m_pallete_ram.resize(0x400);
         }
 
-        bool is_rendering_bitmap();
         void tick(int cycles);
 
     public:
+        enum MMIO
+        {
+            REG_DISPCNT = 0,
+            REG_DISPSTAT = 2,
+            REG_VCOUNT = 3,
+            REGS_BGCNT = 4, // base offset to group of bgxcnt regs
+            REGS_OFS = 8 // base offset to group of vofs/hofs regs
+        };
+
         FrameBuffer m_frame{{}};
         std::vector<std::uint8_t> m_vram;
         std::vector<std::uint8_t> m_oam;
         std::vector<std::uint8_t> m_pallete_ram;
         std::span<std::uint16_t, 42> m_mmio;
+        std::uint8_t *m_if_reg;
 
     private:
         std::uint16_t get_tile_offset(int tx, int ty, bool bg_reg_64x64) const noexcept;
@@ -44,15 +53,6 @@ class PPU
         void draw_scanline_bitmap_5();
 
     private:
-        enum MMIO
-        {
-            REG_DISPCNT = 0,
-            REG_DISPSTAT = 2,
-            REG_VCOUNT = 3,
-            REGS_BGCNT = 4, // base offset to group of bgxcnt regs
-            REGS_OFS = 8 // base offset to group of vofs/hofs regs
-        };
-
         std::uint32_t m_scanline_cycles;
 };
 

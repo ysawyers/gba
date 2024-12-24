@@ -9,7 +9,7 @@
 class Memory
 {
     public:
-        Memory() : m_ppu(std::span<std::uint16_t, 42>{reinterpret_cast<std::uint16_t*>(m_mmio.data()), 42})
+        Memory() : m_ppu(std::span<std::uint16_t, 42>{reinterpret_cast<std::uint16_t*>(m_mmio.data()), 42}, m_mmio.data() + 0x202)
         {
             m_bios.resize(0x4000);
             m_ewram.resize(0x40000);
@@ -23,7 +23,9 @@ class Memory
         void load_rom(const std::string& rom_filepath);
         void update_key_input(std::uint16_t v) noexcept { *reinterpret_cast<std::uint16_t*>(m_mmio.data() + 0x130) = v; };
         FrameBuffer& get_frame();
-        
+
+        bool pending_interrupts();
+
         void tick_components(int cycles);
         void reset_components();
 
@@ -43,15 +45,9 @@ class Memory
             case 0x00: return *reinterpret_cast<T*>(m_bios.data() + addr);
             case 0x02: return *reinterpret_cast<T*>(m_ewram.data() + ((addr - 0x02000000) & 0x3FFFF));
             case 0x03: return *reinterpret_cast<T*>(m_iwram.data() + ((addr - 0x03000000) & 0x7FFF));
-            case 0x04:
-                if (addr > 0x040003FF)
-                {
-                    printf("THERE'S A PROBLEM!\n");
-                    exit(1);
-                }
-                return *reinterpret_cast<T*>(m_mmio.data() + (addr - 0x04000000));
+            case 0x04: return *reinterpret_cast<T*>(m_mmio.data() + ((addr - 0x04000000) & 0x3FF));
             case 0x05: return *reinterpret_cast<T*>(m_ppu.m_pallete_ram.data() + ((addr - 0x05000000) & 0x3FF));
-            case 0x06: 
+            case 0x06:
             {
                 addr = (addr - 0x06000000) & 0x1FFFF;
                 if (addr >= 0x18000 && addr <= 0x1FFFF) 
@@ -73,7 +69,7 @@ class Memory
         }
 
         template <typename T>
-        void write(std::uint32_t addr, T value) 
+        void write(std::uint32_t addr, T value)
         {
             if constexpr (std::is_same_v<T, std::uint32_t>) 
             {
@@ -93,38 +89,80 @@ class Memory
                 *reinterpret_cast<T*>(m_iwram.data() + ((addr - 0x03000000) & 0x7FFF)) = value;
                 break;
             case 0x04:
-                if (addr > 0x040003FF)
+                if constexpr (std::is_same_v<T, std::uint8_t>)
                 {
-                    printf("THERE'S A PROBLEM!\n");
-                    exit(1);
+                    if (addr == 0x04000202)
+                    {
+                        printf("panda 0\n");
+                        exit(1);
+                    }
                 }
-                *reinterpret_cast<T*>(m_mmio.data() + (addr - 0x04000000)) = value;
+                else if (std::is_same_v<T, std::uint16_t>)
+                {
+                    if (addr == 0x04000202)
+                    {
+                        *reinterpret_cast<T*>(m_mmio.data() + 0x202) &= ~value;
+                        break;
+                    }
+                }
+                else
+                {
+                    if (addr == 0x04000200)
+                    {
+                        *reinterpret_cast<T*>(m_mmio.data() + 0x200) = value & 0xFFFF;
+                        *reinterpret_cast<T*>(m_mmio.data() + 0x202) &= ~(value >> 16);
+                    }
+                    else if (addr == 0x04000202)
+                    {
+                        printf("panda 2\n");
+                        exit(1);
+                    }
+                }
+                *reinterpret_cast<T*>(m_mmio.data() + ((addr - 0x04000000) & 0x3FF)) = value;
                 break;
             case 0x05:
-                if constexpr (std::is_same_v<T, std::uint8_t>) {
+                if constexpr (std::is_same_v<T, std::uint8_t>) 
+                {
                     std::uint16_t duplicated_halfword = (value << 8) | value;
                     *reinterpret_cast<std::uint16_t*>(m_ppu.m_pallete_ram.data() + (((addr - 0x05000000) & 0x3FF) & ~1)) = duplicated_halfword;
-                } else {
+                } 
+                else 
+                {
                     *reinterpret_cast<T*>(m_ppu.m_pallete_ram.data() + ((addr - 0x05000000) & 0x3FF)) = value;
                 }
                 break;
             case 0x06: 
             {
-                if constexpr (std::is_same_v<T, std::uint8_t>) {
+                if constexpr (std::is_same_v<T, std::uint8_t>) 
+                {
                     addr = (addr - 0x06000000) & 0x1FFFF;
-                    addr -= (addr >= 0x18000) * 0x8000;
-
-                    if (addr >= 0x14000) break;
-
-                    std::uint32_t bg_vram_size = 0x10000 + (0x14000 * (m_ppu.is_rendering_bitmap()));
-                    if (addr < bg_vram_size) {
+                    if (addr >= 0x18000)
+                    {
+                        addr -= 0x8000;
+                    }
+                    if (addr >= 0x14000)
+                    {
+                        break;
+                    }
+                    std::uint32_t bg_vram_size = 0x10000;
+                    if ((m_ppu.m_mmio[PPU::REG_DISPCNT] & 7) >= 3)
+                    {
+                        bg_vram_size += 0x14000;
+                    }
+                    if (addr < bg_vram_size) 
+                    {
                         std::uint16_t duplicated_halfword = (value << 8) | value;
                         *reinterpret_cast<std::uint16_t*>(m_ppu.m_vram.data() + (addr & ~1)) = duplicated_halfword;
                     }
                     break;
-                } else {
+                }
+                else 
+                {
                     addr = (addr - 0x06000000) & 0x1FFFF;
-                    if (addr >= 0x18000) addr -= 0x8000;
+                    if (addr >= 0x18000)
+                    {
+                        addr -= 0x8000;
+                    }
                     *reinterpret_cast<T*>(m_ppu.m_vram.data() + addr) = value;
                     break;
                 }
@@ -148,7 +186,7 @@ class Memory
         std::vector<std::uint8_t> m_iwram;
         std::vector<std::uint8_t> m_rom;
         std::vector<std::uint8_t> m_sram;
-        std::array<std::uint8_t, 0x304> m_mmio{}; // TODO: we can probably just make this std::uint16_t
+        std::array<std::uint8_t, 0x400> m_mmio{};
 
         PPU m_ppu;
         Timer timer;

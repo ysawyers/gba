@@ -37,6 +37,14 @@ void Memory::load_rom(const std::string& rom_filepath)
     fclose(fp);
 }
 
+bool Memory::pending_interrupts()
+{
+    bool ime = m_mmio[0x208] & 1;
+    std::uint16_t ie_reg = *reinterpret_cast<std::uint16_t*>(m_mmio.data() + 0x200);
+    std::uint16_t if_reg = *reinterpret_cast<std::uint16_t*>(m_mmio.data() + 0x202);
+    return ime && (ie_reg & if_reg);
+}
+
 void Memory::tick_components(int cycles)
 {
     m_ppu.tick(cycles);

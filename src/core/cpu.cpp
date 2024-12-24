@@ -868,9 +868,23 @@ int CPU::execute()
 {
     if (is_thumb_enabled()) 
     {
+        bool had_it_flush = m_pipeline_invalid;
         std::uint16_t instr = m_pipeline_invalid ? fetch_thumb() : m_pipeline;
         m_pipeline = fetch_thumb();
         m_pipeline_invalid = false;
+
+        if (m_mem.pending_interrupts() && !is_irq_disabled() && !had_it_flush)
+        {
+            m_banked_regs[IRQ][14] = m_banked_regs[m_mode][15] - 2;
+            m_banked_regs[IRQ].m_control = m_banked_regs[SYS].m_control;
+            m_banked_regs[IRQ].m_flags = m_banked_regs[SYS].m_flags;
+            update_cpsr_irq_disable(true);
+            update_cpsr_thumb_status(false);
+            bank_transfer(0b10010);
+            m_banked_regs[m_mode][15] = 0x00000018;
+            m_pipeline_invalid = true;
+            return 1;
+        }
 
         switch (m_thumb_lut[instr >> 6]) 
         {
@@ -986,9 +1000,23 @@ int CPU::execute()
     }
     else 
     {
+        bool had_it_flush = m_pipeline_invalid;
         std::uint32_t instr = m_pipeline_invalid ? fetch_arm() : m_pipeline;
         m_pipeline = fetch_arm();
         m_pipeline_invalid = false;
+
+        if (m_mem.pending_interrupts() && !is_irq_disabled() && !had_it_flush)
+        {
+            m_banked_regs[IRQ][14] = m_banked_regs[m_mode][15];
+            m_banked_regs[IRQ].m_control = m_banked_regs[SYS].m_control;
+            m_banked_regs[IRQ].m_flags = m_banked_regs[SYS].m_flags;
+            update_cpsr_irq_disable(true);
+            update_cpsr_thumb_status(false);
+            bank_transfer(0b10010);
+            m_banked_regs[m_mode][15] = 0x00000018;
+            m_pipeline_invalid = true;
+            return 1;
+        }
 
         if (condition(instr)) [[likely]] 
         {
@@ -1035,10 +1063,6 @@ FrameBuffer& CPU::view_current_frame()
 int CPU::step()
 {
     int cycles = execute();
-
-    // NOTE: CPU should run at 1cpi for now
-    assert(cycles == 1);
-
     m_mem.tick_components(cycles);
     return cycles;
 }

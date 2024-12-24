@@ -208,7 +208,7 @@ void Window::render_debug_window() {
     }
     ImGui::SameLine();
     if (m_breakpoint_reached && ImGui::Button("Step 1000")) {
-        for (int i = 0; i < 100000; i++) {
+        for (int i = 0; i < 10000; i++) {
             m_cpu->step();
         }
     }
