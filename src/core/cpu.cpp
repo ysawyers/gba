@@ -866,12 +866,23 @@ int CPU::mul(std::uint32_t instr)
 
 int CPU::execute()
 {
-    assert(m_pipeline_invalid == false);
-
     if (is_thumb_enabled())
     {
         std::uint16_t instr = m_pipeline;
         m_pipeline = fetch_thumb();
+
+        if (m_mem.pending_interrupts() && !is_irq_disabled())
+        {
+            m_banked_regs[IRQ][14] = m_banked_regs[m_mode][15];
+            m_banked_regs[IRQ].m_control = m_banked_regs[SYS].m_control;
+            m_banked_regs[IRQ].m_flags = m_banked_regs[SYS].m_flags;
+            update_cpsr_irq_disable(true);
+            update_cpsr_thumb_status(false);
+            bank_transfer(0b10010);
+            m_banked_regs[m_mode][15] = 0x00000018;
+            m_pipeline_invalid = true;
+            return 1;
+        }
 
         switch (m_thumb_lut[instr >> 6]) 
         {
@@ -994,6 +1005,19 @@ int CPU::execute()
         std::uint32_t instr = m_pipeline;
         m_pipeline = fetch_arm();
 
+        if (m_mem.pending_interrupts() && !is_irq_disabled())
+        {
+            m_banked_regs[IRQ][14] = m_banked_regs[m_mode][15] - 4;
+            m_banked_regs[IRQ].m_control = m_banked_regs[SYS].m_control;
+            m_banked_regs[IRQ].m_flags = m_banked_regs[SYS].m_flags;
+            update_cpsr_irq_disable(true);
+            update_cpsr_thumb_status(false);
+            bank_transfer(0b10010);
+            m_banked_regs[m_mode][15] = 0x00000018;
+            m_pipeline_invalid = true;
+            return 1;
+        }
+
         if (condition(instr)) [[likely]] 
         {
             std::uint16_t opcode = (((instr >> 20) & 0xFF) << 4) | ((instr >> 4) & 0xF);
@@ -1038,30 +1062,12 @@ FrameBuffer& CPU::view_current_frame()
 
 int CPU::step()
 {
-    int cycles;
-
-    if (m_mem.pending_interrupts() && !is_irq_disabled())
+    int cycles = execute();
+    if (m_pipeline_invalid)
     {
-        m_banked_regs[IRQ][14] = m_banked_regs[m_mode][15];
-        m_banked_regs[IRQ].m_control = m_banked_regs[SYS].m_control;
-        m_banked_regs[IRQ].m_flags = m_banked_regs[SYS].m_flags;
-        update_cpsr_irq_disable(true);
-        update_cpsr_thumb_status(false);
-        bank_transfer(0b10010);
-        m_banked_regs[m_mode][15] = 0x00000018;
-        m_pipeline = fetch_arm();
-        cycles = 1;
+        m_pipeline_invalid = false;
+        m_pipeline = is_thumb_enabled() ? fetch_thumb() : fetch_arm();
     }
-    else
-    {
-        cycles = execute();
-        if (m_pipeline_invalid)
-        {
-            m_pipeline_invalid = false;
-            m_pipeline = is_thumb_enabled() ? fetch_thumb() : fetch_arm();
-        }
-    }
-
     m_mem.tick_components(cycles);
     return cycles;
 }
@@ -1073,7 +1079,7 @@ FrameBuffer& CPU::render_frame(std::uint16_t key_input, std::uint32_t breakpoint
     int total_cycles = 0;
     while (total_cycles < CYCLES_PER_FRAME) 
     {
-        if (breakpoint == m_banked_regs[m_mode][15]) [[unlikely]] 
+        if ((breakpoint == m_banked_regs[m_mode][15])) [[unlikely]] 
         {
             breakpoint_reached = true;
             break;
