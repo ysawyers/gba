@@ -889,7 +889,8 @@ int CPU::execute()
         case InstrFormat::THUMB_1: return alu(thumb_translate_1(instr));
         case InstrFormat::THUMB_2: return alu(thumb_translate_2(instr));
         case InstrFormat::THUMB_3: return alu(thumb_translate_3(instr));
-        case InstrFormat::THUMB_4: {
+        case InstrFormat::THUMB_4: 
+        {
             std::uint32_t translation = 0b11100000000100000000000000000000;
             std::uint32_t rd = instr & 0x7;
             std::uint32_t rs = (instr >> 3) & 0x7;
@@ -898,7 +899,8 @@ int CPU::execute()
 
             translation |= (rd << 12);
 
-            switch ((instr >> 6) & 0xF) {
+            switch ((instr >> 6) & 0xF) 
+            {
             case 0x2:
                 goto thumb_shift_instr;
             case 0x3:
@@ -1018,7 +1020,7 @@ int CPU::execute()
             return 1;
         }
 
-        if (condition(instr)) [[likely]] 
+        if (condition(instr)) [[likely]]
         {
             std::uint16_t opcode = (((instr >> 20) & 0xFF) << 4) | ((instr >> 4) & 0xF);
             switch (m_arm_lut[opcode]) 
@@ -1079,7 +1081,7 @@ FrameBuffer& CPU::render_frame(std::uint16_t key_input, std::uint32_t breakpoint
     int total_cycles = 0;
     while (total_cycles < CYCLES_PER_FRAME) 
     {
-        if ((breakpoint == m_banked_regs[m_mode][15])) [[unlikely]] 
+        if (breakpoint == m_banked_regs[m_mode][15]) [[unlikely]] 
         {
             breakpoint_reached = true;
             break;
