@@ -7,12 +7,12 @@
 
 static const int CYCLES_PER_FRAME = 280896;
 
-CPU::CPU(const std::string& rom_filepath) 
-    : m_pipeline(0), m_pipeline_invalid(true), m_mode(SYS)
+CPU::CPU(const std::string& rom_filepath) : m_pipeline_invalid(false), m_mode(SYS)
 {
+    initialize_registers();
     m_mem.load_bios();
     m_mem.load_rom(rom_filepath);
-    initialize_registers();
+    m_pipeline = fetch_arm();
 }
 
 void CPU::initialize_registers() 
@@ -866,16 +866,14 @@ int CPU::mul(std::uint32_t instr)
 
 int CPU::execute()
 {
-    if (is_thumb_enabled()) 
+    if (is_thumb_enabled())
     {
-        bool had_it_flush = m_pipeline_invalid;
-        std::uint16_t instr = m_pipeline_invalid ? fetch_thumb() : m_pipeline;
+        std::uint16_t instr = m_pipeline;
         m_pipeline = fetch_thumb();
-        m_pipeline_invalid = false;
 
-        if (m_mem.pending_interrupts() && !is_irq_disabled() && !had_it_flush)
+        if (m_mem.pending_interrupts() && !is_irq_disabled())
         {
-            m_banked_regs[IRQ][14] = m_banked_regs[m_mode][15] - 2;
+            m_banked_regs[IRQ][14] = m_banked_regs[m_mode][15];
             m_banked_regs[IRQ].m_control = m_banked_regs[SYS].m_control;
             m_banked_regs[IRQ].m_flags = m_banked_regs[SYS].m_flags;
             update_cpsr_irq_disable(true);
@@ -891,7 +889,8 @@ int CPU::execute()
         case InstrFormat::THUMB_1: return alu(thumb_translate_1(instr));
         case InstrFormat::THUMB_2: return alu(thumb_translate_2(instr));
         case InstrFormat::THUMB_3: return alu(thumb_translate_3(instr));
-        case InstrFormat::THUMB_4: {
+        case InstrFormat::THUMB_4: 
+        {
             std::uint32_t translation = 0b11100000000100000000000000000000;
             std::uint32_t rd = instr & 0x7;
             std::uint32_t rs = (instr >> 3) & 0x7;
@@ -900,7 +899,8 @@ int CPU::execute()
 
             translation |= (rd << 12);
 
-            switch ((instr >> 6) & 0xF) {
+            switch ((instr >> 6) & 0xF) 
+            {
             case 0x2:
                 goto thumb_shift_instr;
             case 0x3:
@@ -959,9 +959,12 @@ int CPU::execute()
         {
             std::uint8_t rd = (instr >> 8) & 0x7;
             std::uint32_t nn = (instr & 0xFF) << 2;
-            if ((instr >> 11) & 1) {
+            if ((instr >> 11) & 1) 
+            {
                 m_banked_regs[m_mode][rd] = m_banked_regs[m_mode][13] + nn;
-            } else {
+            }
+            else 
+            {
                 m_banked_regs[m_mode][rd] = (m_banked_regs[m_mode][15] & ~2) + nn;
             }
             return 1;
@@ -972,7 +975,8 @@ int CPU::execute()
         case InstrFormat::THUMB_16: 
         {
             std::uint32_t arm_instr = thumb_translate_16(instr);
-            if (condition(arm_instr)) {
+            if (condition(arm_instr)) 
+            {
                 return branch(arm_instr);
             }
             return 1;
@@ -998,16 +1002,14 @@ int CPU::execute()
         default: std::unreachable();
         }
     }
-    else 
+    else
     {
-        bool had_it_flush = m_pipeline_invalid;
-        std::uint32_t instr = m_pipeline_invalid ? fetch_arm() : m_pipeline;
+        std::uint32_t instr = m_pipeline;
         m_pipeline = fetch_arm();
-        m_pipeline_invalid = false;
 
-        if (m_mem.pending_interrupts() && !is_irq_disabled() && !had_it_flush)
+        if (m_mem.pending_interrupts() && !is_irq_disabled())
         {
-            m_banked_regs[IRQ][14] = m_banked_regs[m_mode][15];
+            m_banked_regs[IRQ][14] = m_banked_regs[m_mode][15] - 4;
             m_banked_regs[IRQ].m_control = m_banked_regs[SYS].m_control;
             m_banked_regs[IRQ].m_flags = m_banked_regs[SYS].m_flags;
             update_cpsr_irq_disable(true);
@@ -1018,7 +1020,7 @@ int CPU::execute()
             return 1;
         }
 
-        if (condition(instr)) [[likely]] 
+        if (condition(instr)) [[likely]]
         {
             std::uint16_t opcode = (((instr >> 20) & 0xFF) << 4) | ((instr >> 4) & 0xF);
             switch (m_arm_lut[opcode]) 
@@ -1063,6 +1065,11 @@ FrameBuffer& CPU::view_current_frame()
 int CPU::step()
 {
     int cycles = execute();
+    if (m_pipeline_invalid)
+    {
+        m_pipeline_invalid = false;
+        m_pipeline = is_thumb_enabled() ? fetch_thumb() : fetch_arm();
+    }
     m_mem.tick_components(cycles);
     return cycles;
 }
